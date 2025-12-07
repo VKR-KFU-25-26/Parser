@@ -20,8 +20,8 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\CourtDecisions.Kafka\CourtDecisions.Kafka.csproj" />
-      <ProjectReference Include="..\CourtParser.Core\CourtParser.Core.csproj" />
+      <ProjectReference Include="..\CourtParser.Common\CourtParser.Common.csproj" />
+      <ProjectReference Include="..\CourtParser.Models\CourtParser.Models.csproj" />
     </ItemGroup>
 
 </Project>

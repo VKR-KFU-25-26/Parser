@@ -5,6 +5,9 @@ using PuppeteerSharp;
 
 namespace CourtParser.Infrastructure.Services;
 
+/// <summary>
+/// Сервис для заполнения формы и поиска результата
+/// </summary>
 public class SearchResultsParserService(ILogger<SearchResultsParserService> logger)
 {
     private string _currentFederalDistrict = string.Empty;
@@ -175,7 +178,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 Subject = $"Истец: {plaintiff} | Ответчик: {defendant}",
                 HasDecision = false,
                 DecisionLink = string.Empty,
-                DecisionDate = null,
                 
                 // НОВЫЕ ПОЛЯ:
                 FederalDistrict = _currentFederalDistrict,
@@ -323,7 +325,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 Subject = $"Истец: {plaintiff} | Ответчик: {defendant}",
                 HasDecision = false,
                 DecisionLink = string.Empty,
-                DecisionDate = null
             };
         }
         catch (Exception ex)
@@ -385,7 +386,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 Subject = $"Истец: {plaintiff} | Ответчик: {defendant}",
                 HasDecision = false,
                 DecisionLink = string.Empty,
-                DecisionDate = null
             };
         }
         catch (Exception ex)

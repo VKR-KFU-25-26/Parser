@@ -2,7 +2,7 @@ using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Microsoft.Extensions.Logging;
 
-namespace CourtDecisions.Kafka.KafkaHelpers;
+namespace CourtParser.Common.Kafka.KafkaHelpers;
 
 public class KafkaTopicHelpers(ILogger<KafkaTopicHelpers> logger)
 {

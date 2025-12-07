@@ -1,10 +1,9 @@
 using System.Text.Json;
 using Confluent.Kafka;
-using CourtDecisions.Kafka.Abstraction;
-using CourtDecisions.Kafka.KafkaHelpers;
-using CourtDecisions.Kafka.Messages;
-using CourtDecisions.Kafka.Options;
-using CourtParser.Models.Entities;
+using CourtParser.Common.Kafka.Abstraction;
+using CourtParser.Common.Kafka.KafkaHelpers;
+using CourtParser.Common.Kafka.Messages;
+using CourtParser.Common.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -142,7 +141,6 @@ public class KafkaCourtMessageProducer : IKafkaProducer
             Subject = "тестовое дело",
             HasDecision = true,
             DecisionLink = "https://example.com/test/decision/1",
-            DecisionDate = DateTime.UtcNow,
             DecisionType = "Тестовое решение",
             FederalDistrict = "Тестовый федеральный округ",
             Region = "Тестовый регион",

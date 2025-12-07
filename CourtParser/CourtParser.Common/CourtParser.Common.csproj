@@ -15,7 +15,11 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\CourtParser.Core\CourtParser.Core.csproj" />
+      <Folder Include="Kafka\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\CourtParser.Models\CourtParser.Models.csproj" />
     </ItemGroup>
 
 </Project>

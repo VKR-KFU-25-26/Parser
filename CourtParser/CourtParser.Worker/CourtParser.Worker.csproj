@@ -20,13 +20,13 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Content Include="..\.dockerignore">
-        <Link>.dockerignore</Link>
-      </Content>
+      <ProjectReference Include="..\CourtParser.Common\CourtParser.Common.csproj" />
+      <ProjectReference Include="..\CourtParser.Infrastructure\CourtParser.Infrastructure.csproj" />
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\CourtDecisions.Kafka\CourtDecisions.Kafka.csproj" />
-      <ProjectReference Include="..\CourtParser.Infrastructure\CourtParser.Infrastructure.csproj" />
+      <Content Include="..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
     </ItemGroup>
 </Project>

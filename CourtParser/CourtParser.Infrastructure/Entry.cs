@@ -1,8 +1,7 @@
-using CourtDecisions.Kafka.Abstraction;
-using CourtDecisions.Kafka.KafkaHelpers;
-using CourtDecisions.Kafka.Options;
-using CourtParser.Core.Interfaces;
-using CourtParser.Infrastructure.Options;
+using CourtParser.Common.Interfaces;
+using CourtParser.Common.Kafka.Abstraction;
+using CourtParser.Common.Kafka.KafkaHelpers;
+using CourtParser.Common.Options;
 using CourtParser.Infrastructure.Parsers;
 using CourtParser.Infrastructure.Producers;
 using CourtParser.Infrastructure.Services;

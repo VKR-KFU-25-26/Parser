@@ -1,8 +1,7 @@
-using CourtDecisions.Kafka.Abstraction;
-using CourtDecisions.Kafka.Messages;
-using CourtDecisions.Kafka.Options;
-using CourtParser.Core.Interfaces;
-using CourtParser.Infrastructure.Options;
+using CourtParser.Common.Interfaces;
+using CourtParser.Common.Kafka.Abstraction;
+using CourtParser.Common.Kafka.Messages;
+using CourtParser.Common.Options;
 using CourtParser.Infrastructure.Parsers;
 using CourtParser.Models.Entities;
 using CourtParser.Models.Regions;
@@ -89,7 +88,6 @@ public class RegionJobService : IRegionJobService
             Timestamp = DateTime.UtcNow,
             HasDecision = model.HasDecision,
             DecisionLink = model.DecisionLink,
-            DecisionDate = model.DecisionDate,
             DecisionType = model.DecisionType,
             FederalDistrict = federalDistrict, 
             Region = model.Region,
@@ -173,11 +171,6 @@ public class RegionJobService : IRegionJobService
                     : "📎 Отдельный документ";
                 
                 Console.WriteLine($"   💾 Тип: {decisionType}");
-                
-                if (message.DecisionDate.HasValue)
-                {
-                    Console.WriteLine($"   📅 Дата решения: {message.DecisionDate.Value:dd.MM.yyyy}");
-                }
             }
 
             Console.WriteLine($"   🔗 Ссылка: {message.Link}");
@@ -201,6 +194,7 @@ public class RegionJobService : IRegionJobService
         Console.WriteLine("".PadRight(70, '═'));
     }
 
+    
     /// <summary>
     /// Обрезает текст до указанной длины и добавляет многоточие
     /// </summary>

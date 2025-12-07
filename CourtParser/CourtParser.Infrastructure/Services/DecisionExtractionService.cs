@@ -1,3 +1,4 @@
+using System.Text;
 using CourtParser.Models.Entities;
 using Microsoft.Extensions.Logging;
 using PuppeteerSharp;
@@ -7,6 +8,8 @@ namespace CourtParser.Infrastructure.Services;
 
 public class DecisionExtractionService(ILogger<DecisionExtractionService> logger)
 {
+    
+    [Obsolete("Obsolete")]
     public async Task CheckAndExtractDecisionAsync(IPage page, CourtCase courtCase, CancellationToken cancellationToken = default)
     {
         try
@@ -18,7 +21,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.DecisionLink = string.Empty;
             courtCase.DecisionType = "Не найдено";
             courtCase.DecisionContent = string.Empty;
-            courtCase.DecisionDate = null;
         
             // Ждем загрузки страницы
             await page.GoToAsync(courtCase.Link, WaitUntilNavigation.Networkidle2);
@@ -48,7 +50,16 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 return;
             }
 
-            // 5. Если ничего не найдено
+            // 5. Ищем чистое решение
+            bool cleanDecisionFound = await ExtractCleanDecisionAsync(page, courtCase);
+            
+            if (cleanDecisionFound)
+            {
+                logger.LogInformation("✅ Найдено чистое решение для дела {CaseNumber}", courtCase.CaseNumber);
+                return;
+            }
+
+            // 6. Если ничего не найдено
             logger.LogInformation("❌ Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
             courtCase.HasDecision = false;
             courtCase.DecisionType = "Не найдено";
@@ -61,10 +72,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.DecisionType = "Ошибка при проверке";
         }
     }
-   
 
     /// <summary>
-    /// Извлекает встроенное решение прямо из HTML страницы - УЛУЧШЕННАЯ ВЕРСИЯ
+    /// Извлекает встроенное решение прямо из HTML страницы
     /// </summary>
     private async Task<bool> ExtractEmbeddedDecisionAsync(IPage page, CourtCase courtCase)
     {
@@ -72,8 +82,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Ищем встроенное решение в HTML для дела {CaseNumber}", courtCase.CaseNumber);
 
-            var pageContent = await page.GetContentAsync();
-            
             // СПЕЦИАЛЬНАЯ ПРОВЕРКА: Ищем блоки MsoNormal с выравниванием по ширине
             bool hasMsoNormalStructure = await CheckMsoNormalStructure(page, courtCase);
             if (hasMsoNormalStructure)
@@ -90,7 +98,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             }
 
             // Проверка по содержимому страницы
-            bool hasDecisionContent = await CheckDecisionByContent(page, pageContent, courtCase);
+            bool hasDecisionContent = await CheckDecisionByContent(page, courtCase);
             if (hasDecisionContent)
             {
                 return true;
@@ -101,6 +109,799 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ошибка при поиске встроенного решения для дела {CaseNumber}", courtCase.CaseNumber);
+            return false;
+        }
+    }
+
+    private async Task<bool> ExtractCleanDecisionAsync(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Ищем чистое решение в HTML для дела {CaseNumber}", courtCase.CaseNumber);
+
+            // 1. Сначала пробуем извлечь с форматированием
+            bool extracted = await ExtractFormattedDecision(page, courtCase);
+            if (extracted) return true;
+        
+            // 2. Метод из HTML-структуры
+            extracted = await ExtractFromHtmlStructure(page, courtCase);
+            if (extracted) return true;
+        
+            // 3. Метод из стандартной структуры
+            extracted = await ExtractFromStandardStructure(page, courtCase);
+            if (extracted) return true;
+        
+            // 4. Простой метод извлечения текста
+            extracted = await ExtractBySimpleTextExtraction(page, courtCase);
+            if (extracted) return true;
+        
+            // 5. Метод по ключевым словам
+            extracted = await ExtractByDecisionKeywords(page, courtCase);
+        
+            return extracted;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при поиске чистого решения для дела {CaseNumber}", courtCase.CaseNumber);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// СПЕЦИАЛЬНЫЙ МЕТОД: Извлекает решение из HTML с тегами форматирования
+    /// </summary>
+    private async Task<bool> ExtractFromHtmlStructure(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Пытаемся извлечь решение из HTML-структуры...");
+
+            // 1. Получаем весь HTML страницы
+            var pageContent = await page.GetContentAsync();
+        
+            // 2. Ищем блок с решением
+            int startIndex = FindDecisionStartInHtml(pageContent);
+            if (startIndex == -1)
+            {
+                logger.LogInformation("Не найдено начало решения в HTML");
+                return false;
+            }
+
+            // 3. Вырезаем HTML от начала решения
+            string htmlSolution = pageContent.Substring(startIndex);
+        
+            // 4. Ищем конец решения
+            int endIndex = FindDecisionEndInHtml(htmlSolution);
+            if (endIndex == -1)
+            {
+                endIndex = Math.Min(50000, htmlSolution.Length);
+            }
+            else
+            {
+                endIndex = Math.Min(endIndex, 50000);
+            }
+
+            htmlSolution = htmlSolution.Substring(0, endIndex);
+        
+            // 5. Извлекаем текст с сохранением структуры
+            string cleanText = ExtractTextWithStructure(htmlSolution);
+        
+            if (string.IsNullOrWhiteSpace(cleanText) || cleanText.Length < 500)
+            {
+                logger.LogInformation("Извлеченный текст слишком короткий: {Length}", cleanText.Length);
+                return false;
+            }
+
+            // 6. Проверяем, что это действительно решение
+            if (IsValidDecisionContent(cleanText))
+            {
+                var documentType = DetermineDocumentTypeFromContent(cleanText);
+        
+                courtCase.HasDecision = true;
+                courtCase.DecisionLink = courtCase.Link + "#html_structure";
+                courtCase.DecisionType = documentType;
+                courtCase.DecisionContent = cleanText;
+
+                logger.LogInformation("✅ Найдено решение из HTML-структуры: {Type}, длина: {Length} символов", 
+                    documentType, cleanText.Length);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении из HTML-структуры");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// Извлекает текст из HTML с сохранением структуры (ГЛАВНЫЙ МЕТОД)
+    /// </summary>
+    private string ExtractTextWithStructure(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        try
+        {
+            // 1. Убираем комментарии
+            html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
+            
+            // 2. Обрабатываем защищенные данные
+            html = ProcessProtectedData(html);
+            
+            // 3. Заменяем теги на разметку с сохранением структуры
+            html = ReplaceHtmlTagsWithStructure(html);
+            
+            // 4. Очищаем от оставшихся HTML тегов
+            html = Regex.Replace(html, @"<[^>]*>", " ", RegexOptions.IgnoreCase);
+            
+            // 5. Декодируем HTML-сущности
+            html = System.Net.WebUtility.HtmlDecode(html);
+            
+            // 6. Обрабатываем специальные символы
+            html = ProcessSpecialCharacters(html);
+            
+            // 7. Улучшаем форматирование текста
+            html = ImproveTextFormatting(html);
+            
+            // 8. Убираем лишние пробелы и пустые строки
+            html = CleanupWhitespace(html);
+            
+            return html.Trim();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении текста с сохранением структуры");
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Обрабатывает защищенные данные (ФИО, адреса и т.д.)
+    /// </summary>
+    private string ProcessProtectedData(string html)
+    {
+        // Заменяем защищенные span'ы
+        var protectedSpans = Regex.Matches(html, 
+            @"<span[^>]*class\s*=\s*[""']?(FIO\d+|Address\d+|others\d+|Data\d+|Nomer\d+)[""']?[^>]*>(.*?)</span>", 
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+        foreach (Match match in protectedSpans)
+        {
+            var className = GetProtectedClassName(match.Value);
+            var innerText = match.Groups[2].Value.Trim();
+            var replacement = GetProtectedReplacement(className, innerText);
+            html = html.Replace(match.Value, replacement);
+        }
+        
+        return html;
+    }
+
+    private string GetProtectedClassName(string htmlTag)
+    {
+        var match = Regex.Match(htmlTag, @"class=[""']?(FIO\d+|Address\d+|others\d+|Data\d+|Nomer\d+)[""']?", 
+            RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value.ToLower() : "";
+    }
+
+    private string GetProtectedReplacement(string className, string innerText)
+    {
+        if (className.StartsWith("fio"))
+            return "<ФИО>";
+        else if (className.StartsWith("address"))
+            return "<адрес>";
+        else if (className.StartsWith("others"))
+            return "<данные изъяты>";
+        else if (className.StartsWith("data"))
+        {
+            if (DateTime.TryParse(innerText, out var date))
+                return date.ToString("dd.MM.yyyy");
+            return "<дата>";
+        }
+        else if (className.StartsWith("nomer"))
+            return "<номер>";
+        
+        return innerText;
+    }
+
+    /// <summary>
+    /// Заменяет HTML теги на текстовую разметку с сохранением структуры
+    /// </summary>
+    private string ReplaceHtmlTagsWithStructure(string html)
+    {
+        // Сохраняем заголовки и важные элементы
+        html = Regex.Replace(html, @"<(h[1-6])[^>]*>(.*?)</\1>", "\n\n### $2 ###\n\n", 
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+        // Абзацы - двойной перенос
+        html = Regex.Replace(html, @"<p[^>]*>", "\n\n", RegexOptions.IgnoreCase);
+        
+        // Разрывы строк - одиночный перенос
+        html = Regex.Replace(html, @"<br[^>]*>", "\n", RegexOptions.IgnoreCase);
+        
+        // Div'ы - тоже могут создавать абзацы
+        html = Regex.Replace(html, @"<div[^>]*>", "\n", RegexOptions.IgnoreCase);
+        
+        // Списки
+        html = Regex.Replace(html, @"<li[^>]*>", "\n• ", RegexOptions.IgnoreCase);
+        
+        // Таблицы - упрощаем
+        html = Regex.Replace(html, @"<tr[^>]*>", "\n", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, @"<td[^>]*>", " | ", RegexOptions.IgnoreCase);
+        
+        // Форматирование текста
+        html = Regex.Replace(html, @"<(b|strong)[^>]*>(.*?)</\1>", "**$2**", 
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        html = Regex.Replace(html, @"<(i|em)[^>]*>(.*?)</\1>", "_$2_", 
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+        // Убираем закрывающие теги
+        html = Regex.Replace(html, @"</(p|div|span|li|ul|ol|table|tr|td)[^>]*>", "", 
+            RegexOptions.IgnoreCase);
+        
+        return html;
+    }
+
+    /// <summary>
+    /// Обрабатывает специальные символы HTML
+    /// </summary>
+    private string ProcessSpecialCharacters(string html)
+    {
+        html = html.Replace("&nbsp;", " ");
+        html = html.Replace("&amp;", "&");
+        html = html.Replace("&lt;", "<");
+        html = html.Replace("&gt;", ">");
+        html = html.Replace("&quot;", "\"");
+        html = html.Replace("&laquo;", "«");
+        html = html.Replace("&raquo;", "»");
+        html = html.Replace("&ndash;", "–");
+        html = html.Replace("&mdash;", "—");
+        
+        return html;
+    }
+
+    /// <summary>
+    /// Улучшает форматирование текста
+    /// </summary>
+    private string ImproveTextFormatting(string html)
+    {
+        // Восстанавливаем абзацы после знаков препинания
+        html = Regex.Replace(html, @"([.!?])\s+([А-ЯA-Z])", "$1\n\n$2");
+        html = Regex.Replace(html, @"([.!?])\s+(\*\*[А-ЯA-Z])", "$1\n\n$2");
+        
+        // Убираем лишние пробелы вокруг знаков препинания
+        html = Regex.Replace(html, @"\s+([.,;:!?])", "$1");
+        html = Regex.Replace(html, @"([.,;:!?])\s+", "$1 ");
+        
+        // Восстанавливаем правильные переносы для дефисов
+        html = Regex.Replace(html, @"\s+-\s+", " - ");
+        html = Regex.Replace(html, @"\s*,\s*", ", ");
+        
+        return html;
+    }
+
+    /// <summary>
+    /// Очищает от лишних пробелов и пустых строк
+    /// </summary>
+    private string CleanupWhitespace(string text)
+    {
+        // Убираем множественные пробелы внутри строк
+        text = Regex.Replace(text, @"[ \t]+", " ");
+        
+        // Разделяем на строки
+        var lines = text.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
+        var resultLines = new List<string>();
+        
+        bool previousLineWasEmpty = false;
+        
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            
+            if (string.IsNullOrWhiteSpace(trimmedLine))
+            {
+                // Добавляем только одну пустую строку между абзацами
+                if (!previousLineWasEmpty && resultLines.Count > 0)
+                {
+                    resultLines.Add("");
+                    previousLineWasEmpty = true;
+                }
+            }
+            else
+            {
+                resultLines.Add(trimmedLine);
+                previousLineWasEmpty = false;
+            }
+        }
+        
+        // Убираем пустые строки в начале и конце
+        while (resultLines.Count > 0 && string.IsNullOrWhiteSpace(resultLines[0]))
+            resultLines.RemoveAt(0);
+        
+        while (resultLines.Count > 0 && string.IsNullOrWhiteSpace(resultLines[^1]))
+            resultLines.RemoveAt(resultLines.Count - 1);
+        
+        return string.Join("\n", resultLines);
+    }
+
+    /// <summary>
+    /// Метод для извлечения форматированного текста решения
+    /// </summary>
+    private async Task<bool> ExtractFormattedDecision(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Пытаемся извлечь форматированное решение...");
+
+            // Получаем HTML всей страницы
+            var pageContent = await page.GetContentAsync();
+        
+            // Ищем начало решения
+            int startIndex = FindDecisionStartInHtml(pageContent);
+            if (startIndex == -1)
+            {
+                return false;
+            }
+        
+            // Вырезаем HTML от начала решения
+            string htmlSolution = pageContent.Substring(startIndex);
+        
+            // Находим конец решения
+            int endIndex = FindDecisionEndInHtml(htmlSolution);
+            if (endIndex == -1)
+            {
+                endIndex = Math.Min(50000, htmlSolution.Length);
+            }
+        
+            htmlSolution = htmlSolution.Substring(0, endIndex);
+        
+            // Извлекаем текст с форматированием
+            string cleanText = ExtractTextWithStructure(htmlSolution);
+        
+            if (string.IsNullOrWhiteSpace(cleanText) || cleanText.Length < 500)
+            {
+                return false;
+            }
+
+            // Проверяем, что это действительно решение
+            if (IsValidDecisionContent(cleanText))
+            {
+                var documentType = DetermineDocumentTypeFromContent(cleanText);
+
+                courtCase.HasDecision = true;
+                courtCase.DecisionLink = courtCase.Link + "#formatted_decision";
+                courtCase.DecisionType = documentType;
+                courtCase.DecisionContent = cleanText;
+
+                logger.LogInformation("✅ Найдено форматированное решение: {Type}, длина: {Length}", 
+                    documentType, cleanText.Length);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении форматированного решения");
+            return false;
+        }
+    }
+
+    private int FindDecisionStartInHtml(string html)
+    {
+        var startMarkers = new[]
+        {
+            "<p style=\"TEXT-ALIGN: center",
+            "<p style=\"TEXT-ALIGN: center; TEXT-INDENT: 0.5in\">РЕШЕНИЕ</p>",
+            "<p style=\"TEXT-ALIGN: center; TEXT-INDENT: 0.5in\">ИМЕНЕМ РОССИЙСКОЙ ФЕДЕРАЦИИ</p>",
+            "Р Е Ш Е Н И Е",
+            "РЕШЕНИЕ",
+            "Именем Российской Федерации"
+        };
+    
+        foreach (var marker in startMarkers)
+        {
+            int index = html.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                return Math.Max(0, index - 200);
+            }
+        }
+    
+        return -1;
+    }
+
+    private int FindDecisionEndInHtml(string html)
+    {
+        var endMarkers = new[]
+        {
+            "<table class=\"law-case-table\">",
+            "</table>",
+            "Председательствующий:",
+            "Резолютивная часть решения оглашена",
+            "Мотивированное решение составлено",
+            "________________",
+            "\nСудья "
+        };
+    
+        foreach (var marker in endMarkers)
+        {
+            int index = html.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0 && index > 1000)
+            {
+                return index + marker.Length;
+            }
+        }
+    
+        return -1;
+    }
+
+    /// <summary>
+    /// ПРОСТОЙ МЕТОД: Получает весь текст страницы и вырезает решение
+    /// </summary>
+    private async Task<bool> ExtractBySimpleTextExtraction(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Используем простой метод извлечения текста...");
+        
+            // Получаем весь текст страницы
+            var fullText = await page.EvaluateFunctionAsync<string>(@"
+            () => {
+                const body = document.body;
+                if (!body) return '';
+                
+                const clone = body.cloneNode(true);
+                const scripts = clone.querySelectorAll('script, style, noscript, iframe');
+                scripts.forEach(el => el.remove());
+                
+                return clone.innerText || clone.textContent || '';
+            }
+        ");
+        
+            if (string.IsNullOrWhiteSpace(fullText))
+                return false;
+        
+            // Ищем начало решения
+            var startMarkers = new[]
+            {
+                "Р Е Ш Е Н И Е",
+                "РЕШЕНИЕ",
+                "Именем Российской Федерации",
+                "ИМЕНЕМ РОССИЙСКОЙ ФЕДЕРАЦИИ"
+            };
+        
+            int startIndex = -1;
+            foreach (var marker in startMarkers)
+            {
+                startIndex = fullText.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (startIndex >= 0) break;
+            }
+        
+            if (startIndex < 0)
+            {
+                logger.LogInformation("Не найдены маркеры начала решения");
+                return false;
+            }
+        
+            // Ищем конец решения
+            int endIndex = Math.Min(startIndex + 15000, fullText.Length);
+        
+            var endMarkers = new[]
+            {
+                "\nСудья ",
+                "\nМировой судья ",
+                "Председательствующий ",
+                "________________",
+                "Резолютивная часть"
+            };
+        
+            foreach (var marker in endMarkers)
+            {
+                int markerIndex = fullText.IndexOf(marker, startIndex + 1000, StringComparison.OrdinalIgnoreCase);
+                if (markerIndex > startIndex && markerIndex < endIndex)
+                {
+                    endIndex = markerIndex + 100;
+                }
+            }
+        
+            string decisionText = fullText.Substring(startIndex, endIndex - startIndex);
+        
+            // Очищаем текст (но сохраняем структуру)
+            decisionText = CleanDecisionText(decisionText);
+        
+            if (string.IsNullOrWhiteSpace(decisionText) || decisionText.Length < 300)
+            {
+                logger.LogInformation("Текст решения слишком короткий: {Length}", decisionText.Length);
+                return false;
+            }
+        
+            if (IsValidDecisionContent(decisionText))
+            {
+                var documentType = DetermineDocumentTypeFromContent(decisionText);
+        
+                courtCase.HasDecision = true;
+                courtCase.DecisionLink = courtCase.Link + "#simple_extraction";
+                courtCase.DecisionType = documentType;
+                courtCase.DecisionContent = decisionText;
+
+                logger.LogInformation("✅ Найдено решение простым методом: {Type}, длина: {Length}", 
+                    documentType, decisionText.Length);
+                return true;
+            }
+        
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка в простом методе извлечения");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// Извлекает решение по ключевым словам
+    /// </summary>
+    private async Task<bool> ExtractByDecisionKeywords(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            // Получаем весь текст страницы
+            var body = await page.QuerySelectorAsync("body");
+            if (body == null) return false;
+
+            var fullText = await body.EvaluateFunctionAsync<string>("el => el.innerText");
+            
+            if (string.IsNullOrWhiteSpace(fullText))
+                return false;
+
+            // Ищем начало решения
+            var startKeywords = new[]
+            {
+                "Именем Российской Федерации",
+                "Р Е Ш Е Н И Е",
+                "О П Р Е Д Е Л Е Н И Е",
+                "П О С Т А Н О В Л Е Н И Е",
+                "ИМЕНЕМ РОССИЙСКОЙ ФЕДЕРАЦИИ",
+                "РЕШЕНИЕ",
+                "ОПРЕДЕЛЕНИЕ",
+                "ПОСТАНОВЛЕНИЕ"
+            };
+
+            int startIndex = -1;
+
+            foreach (var keyword in startKeywords)
+            {
+                startIndex = fullText.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
+                if (startIndex >= 0)
+                {
+                    logger.LogInformation("Найдено ключевое слово: {Keyword} на позиции {Position}", keyword, startIndex);
+                    break;
+                }
+            }
+
+            if (startIndex < 0)
+            {
+                logger.LogInformation("Не найдено ключевых слов для начала решения");
+                return false;
+            }
+
+            // Вырезаем решение
+            int endIndex = FindEndOfDecision(fullText, startIndex);
+            
+            string decisionText = endIndex > startIndex 
+                ? fullText.Substring(startIndex, endIndex - startIndex)
+                : fullText.Substring(startIndex);
+
+            // Очищаем и проверяем
+            decisionText = CleanDecisionText(decisionText);
+            
+            if (string.IsNullOrWhiteSpace(decisionText) || decisionText.Length < 200)
+            {
+                logger.LogInformation("Текст решения слишком короткий: {Length} символов", decisionText.Length);
+                return false;
+            }
+
+            if (IsValidDecisionContent(decisionText))
+            {
+                var documentType = DetermineDocumentTypeFromContent(decisionText);
+            
+                courtCase.HasDecision = true;
+                courtCase.DecisionLink = courtCase.Link + "#text_decision";
+                courtCase.DecisionType = documentType;
+                courtCase.DecisionContent = decisionText;
+
+                logger.LogInformation("✅ Найдено решение по ключевым словам: {Type}, длина: {Length}", 
+                    documentType, courtCase.DecisionContent.Length);
+                return true;
+            }
+
+            logger.LogInformation("Текст не прошел валидацию как решение");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении по ключевым словам");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// Находит конец решения
+    /// </summary>
+    private int FindEndOfDecision(string text, int startIndex)
+    {
+        var endMarkers = new[]
+        {
+            "\nСудья\n",
+            "\nСудья:\n",
+            "\nПредседательствующий\n",
+            "\nМировой судья\n",
+            "\nСуд рассмотрел в открытом судебном заседании\n",
+            "________________",
+            "\nРезолютивная часть",
+            "\nМотивированное решение",
+            "\n\n\n"
+        };
+
+        int endIndex = text.Length;
+        
+        foreach (var marker in endMarkers)
+        {
+            int markerIndex = text.IndexOf(marker, startIndex + 100, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex > startIndex && markerIndex < endIndex)
+            {
+                endIndex = markerIndex;
+                logger.LogInformation("Найден маркер конца: {Marker} на позиции {Position}", marker, markerIndex);
+            }
+        }
+
+        // Если не нашли маркеров, берем следующие 5000 символов
+        if (endIndex == text.Length)
+        {
+            endIndex = Math.Min(startIndex + 5000, text.Length);
+        }
+
+        return endIndex;
+    }
+
+    /// <summary>
+    /// Очищает текст решения от лишнего форматирования (для простых методов)
+    /// </summary>
+    private string CleanDecisionText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        // 1. Убираем HTML-теги
+        text = Regex.Replace(text, @"<[^>]*>", " ");
+        
+        // 2. Декодируем HTML-сущности
+        text = System.Net.WebUtility.HtmlDecode(text);
+        
+        // 3. Заменяем множественные пробелы и переносы
+        text = Regex.Replace(text, @"[\r\n\t]+", "\n");
+        text = Regex.Replace(text, @"\s+", " ");
+        
+        // 4. Убираем лишние пробелы вокруг знаков препинания
+        text = Regex.Replace(text, @"\s+([.,;:!?])", "$1");
+        text = Regex.Replace(text, @"([.,;:!?])\s+", "$1 ");
+        
+        // 5. Восстанавливаем переносы для абзацев
+        text = Regex.Replace(text, @"\.\s+([А-ЯA-Z])", ".\n$1");
+        text = Regex.Replace(text, @"!\s+([А-ЯA-Z])", "!\n$1");
+        text = Regex.Replace(text, @"\?\s+([А-ЯA-Z])", "?\n$1");
+        
+        // 6. Убираем номерные и буллиты в начале строк
+        text = Regex.Replace(text, @"^\s*[\d•\-*]\s*", "", RegexOptions.Multiline);
+        
+        // 7. Разделяем на строки и убираем пустые
+        var lines = text.Split('\n');
+        var resultLines = new List<string>();
+        
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (!string.IsNullOrEmpty(trimmedLine) && trimmedLine.Length > 2)
+            {
+                resultLines.Add(trimmedLine);
+            }
+        }
+        
+        // 8. Объединяем с пустыми строками между абзацами
+        text = string.Join("\n\n", resultLines);
+        
+        return text.Trim();
+    }
+    
+    /// <summary>
+    /// Извлекает решение из стандартной структуры
+    /// </summary>
+    private async Task<bool> ExtractFromStandardStructure(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            // Ищем заголовок "Р Е Ш Е Н И Е" или "О П Р Е Д Е Л Е Н И Е"
+            var possibleHeaders = await page.QuerySelectorAllAsync(
+                "p[style*='TEXT-ALIGN: center'], " +
+                "p[style*='text-align: center'], " +
+                "p.MsoNormal[style*='center'], " +
+                "h3, h4, p"
+            );
+
+            int decisionStartIndex = -1;
+            string decisionText = "";
+
+            for (int i = 0; i < possibleHeaders.Length; i++)
+            {
+                var header = possibleHeaders[i];
+                var headerText = await header.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                
+                if (!string.IsNullOrEmpty(headerText) && 
+                    (headerText.ToUpper().Contains("Р Е Ш Е Н И Е") || 
+                     headerText.ToUpper().Contains("О П Р Е Д Е Л Е Н И Е") ||
+                     headerText.ToUpper().Contains("П О С Т А Н О В Л Е Н И Е") ||
+                     headerText.ToUpper().Contains("РЕШЕНИЕ") ||
+                     headerText.ToUpper().Contains("ОПРЕДЕЛЕНИЕ") ||
+                     headerText.ToUpper().Contains("ПОСТАНОВЛЕНИЕ")))
+                {
+                    decisionStartIndex = i;
+                    logger.LogInformation("Найден заголовок решения: {Header}", headerText);
+                    break;
+                }
+            }
+
+            if (decisionStartIndex >= 0)
+            {
+                // Собираем текст решения
+                for (int i = decisionStartIndex; i < Math.Min(decisionStartIndex + 150, possibleHeaders.Length); i++)
+                {
+                    var element = possibleHeaders[i];
+                    var text = await element.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                    
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        // Очищаем текст от лишних пробелов
+                        text = CleanDecisionText(text);
+                        decisionText += text + "\n\n";
+                        
+                        // Проверяем, не дошли ли мы до конца решения
+                        if (text.Contains("Судья") || text.Contains("Председательствующий") || 
+                            text.Contains("Мировой судья") || text.Length < 10)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (decisionText.Length < 500)
+                {
+                    return false;
+                }
+
+                if (IsValidDecisionContent(decisionText))
+                {
+                    var documentType = DetermineDocumentTypeFromContent(decisionText);
+            
+                    courtCase.HasDecision = true;
+                    courtCase.DecisionLink = courtCase.Link + "#clean_decision";
+                    courtCase.DecisionType = documentType;
+                    courtCase.DecisionContent = decisionText;
+
+                    logger.LogInformation("✅ Найдено чистое решение из структуры: {Type}, длина: {Length} символов", 
+                        documentType, courtCase.DecisionContent.Length);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении из стандартной структуры");
             return false;
         }
     }
@@ -121,52 +922,47 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
             logger.LogInformation("Найдено элементов MsoNormal с выравниванием: {Count}", msoNormalElements.Length);
 
-            if (msoNormalElements.Length < 5) // Должно быть достаточно много таких параграфов
+            if (msoNormalElements.Length < 5)
             {
                 logger.LogInformation("Недостаточно элементов MsoNormal для признания решения: {Count}", msoNormalElements.Length);
                 return false;
             }
 
-            // Извлекаем текст из всех найденных элементов
+            // Извлекаем HTML всех элементов
             var decisionTextParts = new List<string>();
-            foreach (var element in msoNormalElements.Take(20)) // Берем первые 20 элементов
+            foreach (var element in msoNormalElements.Take(20))
             {
-                var text = await element.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-                if (!string.IsNullOrEmpty(text) && text.Length > 10) // Отсекаем короткие фрагменты
+                var outerHtml = await element.EvaluateFunctionAsync<string>("el => el.outerHTML");
+                if (!string.IsNullOrEmpty(outerHtml))
                 {
-                    decisionTextParts.Add(text);
+                    decisionTextParts.Add(outerHtml);
                 }
             }
 
             if (decisionTextParts.Count < 3)
             {
-                logger.LogInformation("Недостаточно текстового контента в MsoNormal элементах");
                 return false;
             }
 
-            var fullText = string.Join(" ", decisionTextParts);
+            var fullHtml = string.Join("\n", decisionTextParts);
+            var cleanText = ExtractTextWithStructure(fullHtml);
             
-            // ВАЛИДАЦИЯ: проверяем, что это действительно судебное решение
-            if (!IsValidDecisionContent(fullText))
+            if (!IsValidDecisionContent(cleanText))
             {
                 logger.LogInformation("Текст из MsoNormal не прошел валидацию как судебное решение");
                 return false;
             }
 
-            // Определяем тип документа
-            var documentType = DetermineDocumentTypeFromContent(fullText);
+            var documentType = DetermineDocumentTypeFromContent(cleanText);
             if (string.IsNullOrEmpty(documentType))
             {
-                logger.LogInformation("Не удалось определить тип документа из MsoNormal контента");
                 return false;
             }
 
-            // УСПЕХ: решение найдено
             courtCase.HasDecision = true;
             courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
             courtCase.DecisionType = documentType;
-            courtCase.DecisionContent = fullText;
-            courtCase.DecisionDate = ExtractDateFromDecisionContent(fullText);
+            courtCase.DecisionContent = cleanText;
 
             logger.LogInformation("✅ Найдено валидное решение в MsoNormal структуре: {Type}", documentType);
             return true;
@@ -220,7 +1016,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 return false;
             }
 
-            var decisionText = CleanText(blockquoteMatch.Groups[1].Value);
+            var decisionText = ExtractTextWithStructure(blockquoteMatch.Groups[1].Value);
             
             if (!IsValidDecisionContent(decisionText))
             {
@@ -237,7 +1033,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
             courtCase.DecisionType = documentType;
             courtCase.DecisionContent = decisionText;
-            courtCase.DecisionDate = ExtractDateFromDecisionContent(decisionText);
             
             logger.LogInformation("✅ Найдено решение в стандартной структуре: {Type}", documentType);
             return true;
@@ -311,10 +1106,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     /// <summary>
     /// Проверяет решение по содержимому всей страницы
     /// </summary>
-    private async Task<bool> CheckDecisionByContent(IPage page, string pageContent, CourtCase courtCase)
+    private async Task<bool> CheckDecisionByContent(IPage page, CourtCase courtCase)
     {
         try
         {
+            var pageContent = await page.GetContentAsync();
+            
             // Ищем явные признаки решения в тексте
             var cleanContent = pageContent.ToLower();
             
@@ -331,20 +1128,20 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             // Извлекаем основной текст страницы
             var bodyText = await page.EvaluateFunctionAsync<string>(@"
                 () => {
-                    // Убираем скрипты, стили, навигацию
                     const scripts = document.querySelectorAll('script, style, nav, header, footer');
                     scripts.forEach(el => el.remove());
-                    
-                    return document.body.innerText;
+                    return document.body.innerHTML;
                 }
             ");
 
-            if (!IsValidDecisionContent(bodyText))
+            var cleanText = ExtractTextWithStructure(bodyText);
+            
+            if (!IsValidDecisionContent(cleanText))
             {
                 return false;
             }
 
-            var documentType = DetermineDocumentTypeFromContent(bodyText);
+            var documentType = DetermineDocumentTypeFromContent(cleanText);
             if (string.IsNullOrEmpty(documentType))
             {
                 return false;
@@ -353,8 +1150,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.HasDecision = true;
             courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
             courtCase.DecisionType = documentType;
-            courtCase.DecisionContent = CleanText(bodyText);
-            courtCase.DecisionDate = ExtractDateFromDecisionContent(bodyText);
+            courtCase.DecisionContent = cleanText;
             
             logger.LogInformation("✅ Найдено решение по содержимому страницы: {Type}", documentType);
             return true;
@@ -425,24 +1221,20 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         if (string.IsNullOrEmpty(href)) 
             return false;
     
-        // Проверяем расширения файлов
         var hasValidExtension = href.EndsWith(".doc") || 
                                 href.EndsWith(".docx") || 
                                 href.EndsWith(".pdf") ||
                                 href.EndsWith(".rtf");
 
-        // Проверяем путь
         var hasValidPath = href.Contains("/decisions/");
 
-        // Проверяем текст ссылки
-        var cleanText = (linkText ?? "").ToLower();
+        var cleanText = linkText.ToLower();
         var hasValidText = cleanText.Contains("решение") ||
                            cleanText.Contains("определение") ||
                            cleanText.Contains("постановление") ||
                            cleanText.Contains("приказ") ||
                            cleanText.Contains("мотивированное");
 
-        // Должны совпасть ВСЕ критерии
         return hasValidExtension && hasValidPath && hasValidText;
     }
     
@@ -474,7 +1266,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
         var cleanContent = content.ToLower();
 
-        // ТОЧНЫЕ СОВПАДЕНИЯ с форматированием
         if (cleanContent.Contains("р е ш е н и е") || 
             (cleanContent.Contains("решение") && cleanContent.Contains("именем российской федерации")))
             return "Решение";
@@ -489,7 +1280,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         if (cleanContent.Contains("мотивированное решение"))
             return "Мотивированное решение";
         
-        // Проверяем по ключевым словам в тексте
         if (cleanContent.Contains("решил:") || cleanContent.Contains("решила:"))
             return "Решение"; 
         if (cleanContent.Contains("определил:") || cleanContent.Contains("определила:"))
@@ -498,43 +1288,352 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             return "Постановление";
         if (cleanContent.Contains("именем российской федерации"))
             return "Судебный акт";
-        return null!; // Неизвестный тип - считаем что решения нет
+        return null!;
     }
-   
-  
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
     /// <summary>
-    /// Извлекает дату из содержимого решения
+    /// Извлекает текст из HTML, сохраняя структуру и защищенные данные
     /// </summary>
-    private DateTime? ExtractDateFromDecisionContent(string content)
+    private string ExtractTextFromHtml(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        try
+        {
+            logger.LogInformation("Извлекаем текст с сохранением структуры...");
+        
+            // 1. Убираем комментарии
+            html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
+        
+            // 2. СОХРАНЯЕМ защищенные данные (ФИО, адреса и т.д.)
+            var protectedData = new Dictionary<string, string>();
+            int markerIndex = 0;
+        
+            // Находим защищенные span'ы (FIO, Address, others, Data, Nomer)
+            var protectedSpans = Regex.Matches(html, 
+                @"<span[^>]*class\s*=\s*[""']?(FIO\d+|Address\d+|others\d+|Data\d+|Nomer\d+)[""']?[^>]*>(.*?)</span>", 
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+            foreach (Match match in protectedSpans)
+            {
+                var marker = $"{{PROTECTED_{markerIndex++}}}";
+                protectedData[marker] = GetProtectedText(match.Value, match.Groups[2].Value);
+                html = html.Replace(match.Value, marker);
+            }
+        
+            // 3. ЗАМЕНА ТЕГОВ с сохранением форматирования
+        
+            // Сохраняем жирный текст: <b> и <strong>
+            html = Regex.Replace(html, @"<(b|strong)[^>]*>(.*?)</\1>", "**$2**", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+            // Сохраняем курсив: <i> и <em>
+            html = Regex.Replace(html, @"<(i|em)[^>]*>(.*?)</\1>", "*$2*", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+            // Абзацы - двойной перенос строки
+            html = Regex.Replace(html, @"<p[^>]*>", "\n\n", RegexOptions.IgnoreCase);
+        
+            // Разрывы строк - одинарный перенос
+            html = Regex.Replace(html, @"<br[^>]*>", "\n", RegexOptions.IgnoreCase);
+        
+            // Div'ы - тоже могут создавать абзацы
+            html = Regex.Replace(html, @"<div[^>]*>", "\n", RegexOptions.IgnoreCase);
+        
+            // Заголовки - делаем их заглавными и добавляем отступ
+            html = Regex.Replace(html, @"<(h[1-6])[^>]*>(.*?)</\1>", "\n\n$2\n\n", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+            // Убираем закрывающие теги p и div
+            html = Regex.Replace(html, @"</(p|div)[^>]*>", "\n", RegexOptions.IgnoreCase);
+        
+            // 4. Убираем все остальные HTML-теги, оставляя текст
+            html = Regex.Replace(html, @"<[^>]*>", " ", RegexOptions.IgnoreCase);
+        
+            // 5. Восстанавливаем защищенные данные
+            foreach (var kvp in protectedData)
+            {
+                html = html.Replace(kvp.Key, kvp.Value);
+            }
+        
+            // 6. Декодируем HTML-сущности
+            html = System.Net.WebUtility.HtmlDecode(html);
+        
+            // 7. Заменяем HTML-специальные символы
+            html = html.Replace("&nbsp;", " ");
+            html = html.Replace("&amp;", "&");
+            html = html.Replace("&lt;", "<");
+            html = html.Replace("&gt;", ">");
+            html = html.Replace("&quot;", "\"");
+        
+            // 8. ОБРАБОТКА ПРОБЕЛОВ И ПЕРЕНОСОВ
+        
+            // Убираем множественные пробелы внутри строк
+            html = Regex.Replace(html, @"[ \t]+", " ");
+        
+            // Убираем пробелы в начале и конце строк
+            var lines = html.Split(['\n', '\r'], StringSplitOptions.None);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                lines[i] = lines[i].Trim();
+            }
+        
+            // Объединяем обратно, сохраняя логическую структуру
+            var resultLines = new List<string>();
+            bool previousLineWasEmpty = false;
+        
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    // Добавляем только одну пустую строку между абзацами
+                    if (!previousLineWasEmpty && resultLines.Count > 0)
+                    {
+                        resultLines.Add("");
+                        previousLineWasEmpty = true;
+                    }
+                }
+                else
+                {
+                    // Восстанавливаем структуру предложений
+                    var processedLine = RestoreSentenceStructure(line); // СОЗДАЕМ НОВУЮ ПЕРЕМЕННУЮ
+                    resultLines.Add(processedLine);
+                    previousLineWasEmpty = false;
+                }
+            }
+        
+            html = string.Join("\n", resultLines);
+        
+            // 9. Восстанавливаем структуру документа
+            html = RestoreDocumentStructure(html);
+        
+            logger.LogInformation("Текст извлечен, длина: {Length} символов", html.Length);
+            return html.Trim();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении текста из HTML");
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Восстанавливает структуру предложений
+    /// </summary>
+    private string RestoreSentenceStructure(string line)
     {
         try
         {
-            var datePatterns = new[]
-            {
-                @"\d{1,2}\s+[а-я]+\s+\d{4}\s+года",
-                @"\d{1,2}\.\d{1,2}\.\d{4}",
-                @"\d{4}-\d{2}-\d{2}"
-            };
-
-            foreach (var pattern in datePatterns)
-            {
-                var match = Regex.Match(content, pattern, RegexOptions.IgnoreCase);
-                if (match.Success)
-                {
-                    var dateStr = match.Value;
-                    if (DateTime.TryParse(dateStr, out var date))
-                        return date;
-                }
-            } 
-
-            return null;
+            // Восстанавливаем переносы после знаков препинания
+            line = Regex.Replace(line, @"([.!?])\s+([А-ЯA-Z])", "$1\n$2");
+            line = Regex.Replace(line, @"([:;])\s+([А-ЯA-Z])", "$1\n$2");
+        
+            // Убираем лишние пробелы вокруг дефисов
+            line = Regex.Replace(line, @"\s+-\s+", "-");
+            line = Regex.Replace(line, @"\s*,\s*", ", ");
+        
+            return line;
         }
         catch
         {
-            return null;
+            return line;
         }
     }
+
+    /// <summary>
+    /// Восстанавливает структуру документа
+    /// </summary>
+    private string RestoreDocumentStructure(string text)
+    {
+        try
+        {
+            var lines = text.Split('\n');
+            var result = new StringBuilder();
+            bool inList = false;
+        
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+            
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    // Если предыдущая строка не была пустой, добавляем разделитель
+                    if (i > 0 && !string.IsNullOrWhiteSpace(lines[i - 1]) && 
+                        i < lines.Length - 1 && !string.IsNullOrWhiteSpace(lines[i + 1]))
+                    {
+                        result.AppendLine();
+                    }
+                    inList = false;
+                    continue;
+                }
+            
+                // Проверяем, является ли строка заголовком
+                bool isHeader = IsHeaderLine(line);
+                bool isListItem = IsListItem(line);
+            
+                // Если начинается новый список после текста
+                if (isListItem && !inList && result.Length > 0)
+                {
+                    result.AppendLine();
+                }
+            
+                // Обработка заголовков
+                if (isHeader)
+                {
+                    result.AppendLine();
+                    result.AppendLine(line.ToUpper());
+                    result.AppendLine();
+                    inList = false;
+                }
+                else if (isListItem)
+                {
+                    // Форматирование списка
+                    result.AppendLine($"• {line}");
+                    inList = true;
+                }
+                else
+                {
+                    // Обычный текст
+                    if (inList)
+                    {
+                        result.AppendLine(); // Завершаем список
+                        inList = false;
+                    }
+                    result.AppendLine(line);
+                }
+            }
+        
+            return result.ToString().Trim();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при восстановлении структуры документа");
+            return text;
+        }
+    }
+
+    /// <summary>
+    /// Проверяет, является ли строка элементом списка
+    /// </summary>
+    private bool IsListItem(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
     
+        return line.StartsWith("- ") || 
+               line.StartsWith("• ") || 
+               line.StartsWith("* ") ||
+               Regex.IsMatch(line, @"^\d+[\.\)]\s") ||
+               Regex.IsMatch(line, @"^[а-я]\)\s", RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>
+    /// Получает текст для защищенного элемента
+    /// </summary>
+    private string GetProtectedText(string htmlTag, string innerText)
+    {
+        try
+        {
+            // Определяем тип защищенных данных по классу
+            if (htmlTag.Contains("class=\"FIO") || htmlTag.Contains("class='FIO"))
+            {
+                return "<ФИО>";
+            }
+            else if (htmlTag.Contains("class=\"Address") || htmlTag.Contains("class='Address"))
+            {
+                return "<адрес>";
+            }
+            else if (htmlTag.Contains("class=\"others") || htmlTag.Contains("class='others"))
+            {
+                return "<данные изъяты>";
+            }
+            else if (htmlTag.Contains("class=\"Data") || htmlTag.Contains("class='Data"))
+            {
+                // Пытаемся извлечь дату из содержимого
+                if (DateTime.TryParse(innerText, out var date))
+                {
+                    return date.ToString("dd.MM.yyyy");
+                }
+                return "<дата>";
+            }
+            else if (htmlTag.Contains("class=\"Nomer") || htmlTag.Contains("class='Nomer"))
+            {
+                return "<номер>";
+            }
+        
+            return innerText.Trim();
+        }
+        catch
+        {
+            return innerText.Trim();
+        }
+    }
+
+
+    /// <summary>
+    /// Определяет, является ли строка заголовком
+    /// </summary>
+    private bool IsHeaderLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+    
+        var upperLine = line.ToUpper();
+    
+        var headers = new[]
+        {
+            "РЕШЕНИЕ",
+            "ОПРЕДЕЛЕНИЕ",
+            "ПОСТАНОВЛЕНИЕ",
+            "ИМЕНЕМ РОССИЙСКОЙ ФЕДЕРАЦИИ",
+            "УСТАНОВИЛ:",
+            "РЕШИЛ:",
+            "ОПРЕДЕЛИЛ:",
+            "ПОСТАНОВИЛ:"
+        };
+    
+        return headers.Any(header => upperLine == header || 
+                                     (upperLine.StartsWith(header) && upperLine.Length < header.Length + 10));
+    }
+    
+    
+    
+    [Obsolete("Obsolete")]
     private async Task ExtractDetailedCaseInfo(IPage page, CourtCase courtCase)
     {
         try
@@ -562,6 +1661,268 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             logger.LogWarning(ex, "Ошибка при извлечении детальной информации для дела {CaseNumber}", courtCase.CaseNumber);
         }
     }
+    private async Task ExtractHeaderInfo(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Извлекаем информацию из заголовка дела...");
+
+            // Ищем блок с основной информацией
+            var headerBlock = await page.QuerySelectorAsync(".col-md-8.text-right");
+            if (headerBlock == null)
+            {
+                logger.LogWarning("Блок заголовка не найден для дела {CaseNumber}", courtCase.CaseNumber);
+                return;
+            }
+
+            // Получаем весь текст блока
+            var headerText = await headerBlock.EvaluateFunctionAsync<string>("el => el.textContent");
+            logger.LogInformation("Текст заголовка: {HeaderText}", headerText);
+
+            // Используем регулярные выражения для извлечения данных
+            await ExtractDataWithRegex(headerText, courtCase);
+        
+            // Альтернативный метод: парсим каждый параграф
+            await ExtractDataFromParagraphs(headerBlock, courtCase);
+
+            logger.LogInformation("✅ Информация заголовка извлечена: Суд={Court}, Судья={Judge}, Начало={StartDate}", 
+                courtCase.CourtType, courtCase.JudgeName, courtCase.StartDate.ToString("dd.MM.yyyy"));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении информации заголовка для дела {CaseNumber}", courtCase.CaseNumber);
+        }
+    }
+
+    /// <summary>
+    /// Извлекает данные с помощью регулярных выражений
+    /// </summary>
+    private async Task ExtractDataWithRegex(string headerText, CourtCase courtCase)
+    {
+        try
+        {
+            // 1. Номер дела
+            var caseNumberMatch = Regex.Match(headerText, @"Номер дела:\s*([^\s]+)", RegexOptions.IgnoreCase);
+            if (caseNumberMatch.Success)
+            {
+                var caseNumber = caseNumberMatch.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(caseNumber))
+                {
+                    courtCase.CaseNumber = caseNumber;
+                    logger.LogInformation("Найден номер дела: {CaseNumber}", caseNumber);
+                }
+            }
+
+            // 2. Дата начала дела (StartDate) - сохраняем как было
+            var startDateMatch = Regex.Match(headerText, @"Дата начала:\s*(\d{1,2}\.\d{1,2}\.\d{4})", RegexOptions.IgnoreCase);
+            if (startDateMatch.Success)
+            {
+                var startDateStr = startDateMatch.Groups[1].Value.Trim();
+                if (DateTime.TryParse(startDateStr, out var startDate))
+                {
+                    courtCase.StartDate = startDate;
+                    logger.LogInformation("✅ Найдена дата начала дела: {StartDate}", startDate.ToString("dd.MM.yyyy"));
+                }
+                else
+                {
+                    logger.LogWarning("Не удалось распарсить дату начала: {StartDateStr}", startDateStr);
+                }
+            }
+
+            // 3. ВАЖНО: Дата рассмотрения (DecisionDate) - это поле ReceivedDate!
+            var decisionDateMatch = Regex.Match(headerText, @"Дата рассмотрения:\s*(\d{1,2}\.\d{1,2}\.\d{4})", RegexOptions.IgnoreCase);
+            if (decisionDateMatch.Success)
+            {
+                var decisionDateStr = decisionDateMatch.Groups[1].Value.Trim();
+                if (DateTime.TryParse(decisionDateStr, out var decisionDate))
+                {
+                    // ВАЖНО: Сохраняем в ReceivedDate, а не в DecisionDate!
+                    courtCase.ReceivedDate = decisionDate;
+                    logger.LogInformation("✅ Найдена дата рассмотрения (ReceivedDate): {DecisionDate}", decisionDate.ToString("dd.MM.yyyy"));
+                }
+                else
+                {
+                    logger.LogWarning("Не удалось распарсить дату рассмотрения: {DecisionDateStr}", decisionDateStr);
+                }
+            }
+            else
+            {
+                logger.LogInformation("Дата рассмотрения не найдена в заголовке");
+                courtCase.ReceivedDate = null;
+            }
+
+            // 4. Суд
+            var courtMatch = Regex.Match(headerText, @"Суд:\s*([^\n]+)", RegexOptions.IgnoreCase);
+            if (courtMatch.Success)
+            {
+                var courtName = courtMatch.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(courtName))
+                {
+                    courtCase.CourtType = courtName;
+                    logger.LogInformation("Найден суд: {CourtName}", courtName);
+                }
+            }
+
+            // 5. Судья
+            var judgeMatch = Regex.Match(headerText, @"Судья:\s*([^\n]+)", RegexOptions.IgnoreCase);
+            if (judgeMatch.Success)
+            {
+                var judgeName = judgeMatch.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(judgeName))
+                {
+                    courtCase.JudgeName = judgeName;
+                    logger.LogInformation("✅ Найден судья: {JudgeName}", judgeName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении данных через регулярные выражения");
+        }
+    }
+
+    /// <summary>
+    /// Альтернативный метод: извлекает данные из отдельных параграфов
+    /// </summary>
+    private async Task ExtractDataFromParagraphs(IElementHandle headerBlock, CourtCase courtCase)
+    {
+        try
+        {
+            // Получаем все параграфы внутри блока
+            var paragraphs = await headerBlock.QuerySelectorAllAsync("p");
+            logger.LogInformation("Найдено параграфов в заголовке: {Count}", paragraphs.Length);
+
+            foreach (var paragraph in paragraphs)
+            {
+                var text = await paragraph.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                if (string.IsNullOrEmpty(text))
+                    continue;
+
+                logger.LogDebug("Обрабатываем параграф: {Text}", text);
+
+                // Проверяем каждый параграф на наличие нужной информации
+                if (text.StartsWith("Номер дела:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ExtractCaseNumberFromParagraph(paragraph, courtCase);
+                }
+                else if (text.StartsWith("Дата начала:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ExtractStartDateFromParagraph(paragraph, courtCase);
+                }
+                
+                else if (text.StartsWith("Суд:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ExtractCourtFromParagraph(paragraph, courtCase);
+                }
+                else if (text.StartsWith("Судья:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ExtractJudgeFromParagraph(paragraph, courtCase);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении данных из параграфов");
+        }
+    }
+
+    /// <summary>
+    /// Извлекает номер дела из параграфа
+    /// </summary>
+    private async Task ExtractCaseNumberFromParagraph(IElementHandle paragraph, CourtCase courtCase)
+    {
+        try
+        {
+            // Ищем тег <b> внутри параграфа
+            var boldElement = await paragraph.QuerySelectorAsync("b");
+            if (boldElement != null)
+            {
+                var caseNumber = await boldElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                if (!string.IsNullOrEmpty(caseNumber))
+                {
+                    courtCase.CaseNumber = caseNumber;
+                    logger.LogInformation("Извлечен номер дела из тега <b>: {CaseNumber}", caseNumber);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Ошибка при извлечении номера дела из параграфа");
+        }
+    }
+
+    /// <summary>
+    /// Извлекает дату начала из параграфа
+    /// </summary>
+    private async Task ExtractStartDateFromParagraph(IElementHandle paragraph, CourtCase courtCase)
+    {
+        try
+        {
+            var boldElement = await paragraph.QuerySelectorAsync("b");
+            if (boldElement != null)
+            {
+                var dateStr = await boldElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                if (!string.IsNullOrEmpty(dateStr) && DateTime.TryParse(dateStr, out var date))
+                {
+                    courtCase.StartDate = date;
+                    logger.LogInformation("✅ Извлечена дата начала из тега <b>: {Date}", date.ToString("dd.MM.yyyy"));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Ошибка при извлечении даты начала из параграфа");
+        }
+    }
+    
+
+    /// <summary>
+    /// Извлекает суд из параграфа
+    /// </summary>
+    private async Task ExtractCourtFromParagraph(IElementHandle paragraph, CourtCase courtCase)
+    {
+        try
+        {
+            var boldElement = await paragraph.QuerySelectorAsync("b");
+            if (boldElement != null)
+            {
+                var courtName = await boldElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                if (!string.IsNullOrEmpty(courtName))
+                {
+                    courtCase.CourtType = courtName;
+                    logger.LogInformation("Извлечен суд из тега <b>: {CourtName}", courtName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Ошибка при извлечении суда из параграфа");
+        }
+    }
+
+    /// <summary>
+    /// Извлекает судью из параграфа
+    /// </summary>
+    private async Task ExtractJudgeFromParagraph(IElementHandle paragraph, CourtCase courtCase)
+    {
+        try
+        {
+            var boldElement = await paragraph.QuerySelectorAsync("b");
+            if (boldElement != null)
+            {
+                var judgeName = await boldElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                if (!string.IsNullOrEmpty(judgeName))
+                {
+                    courtCase.JudgeName = judgeName;
+                    logger.LogInformation("✅ Извлечен судья из тега <b>: {JudgeName}", judgeName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Ошибка при извлечении судьи из параграфа");
+        }
+    }
     
     /// <summary>
     /// Извлекает результат дела из блока dl-horizontal
@@ -577,7 +1938,8 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             if (dlHorizontal == null)
             {
                 logger.LogInformation("Блок dl-horizontal не найден для дела {CaseNumber}", courtCase.CaseNumber);
-                courtCase.CaseResult = "Не указан";
+                // Оставляем поле пустым, а не "Не указан"
+                courtCase.CaseResult = string.Empty;
                 return;
             }
 
@@ -613,9 +1975,15 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 courtCase.CaseResult = caseInfo["Результат"];
                 logger.LogInformation("✅ Найден результат дела: {Result}", courtCase.CaseResult);
             }
+            else if (caseInfo.ContainsKey("Итог"))
+            {
+                courtCase.CaseResult = caseInfo["Итог"];
+                logger.LogInformation("✅ Найден итог дела: {Result}", courtCase.CaseResult);
+            }
             else
             {
-                courtCase.CaseResult = "Не указан";
+                // Оставляем поле пустым, если нет результата
+                courtCase.CaseResult = string.Empty;
                 logger.LogInformation("❌ Результат дела не найден в блоке dl-horizontal");
             }
 
@@ -628,139 +1996,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ошибка при извлечении результата дела {CaseNumber}", courtCase.CaseNumber);
-            courtCase.CaseResult = "Ошибка при извлечении";
-        }
-    }
-
-    private async Task ExtractHeaderInfo(IPage page, CourtCase courtCase)
-    {
-        try
-        {
-            // Ищем блок с основной информацией
-            var headerBlock = await page.QuerySelectorAsync(".col-md-8.text-right");
-            if (headerBlock == null)
-            {
-                logger.LogWarning("Блок заголовка не найден для дела {CaseNumber}", courtCase.CaseNumber);
-                return;
-            }
-
-            var headerHtml = await headerBlock.EvaluateFunctionAsync<string>("el => el.innerHTML");
-            logger.LogInformation("HTML заголовка: {HeaderHtml}", headerHtml);
-
-            // Извлекаем номер дела
-            var caseNumberMatch = Regex.Match(headerHtml, @"Номер дела:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
-            if (caseNumberMatch.Success)
-            {
-                var detailedCaseNumber = caseNumberMatch.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(detailedCaseNumber))
-                {
-                    courtCase.CaseNumber = detailedCaseNumber;
-                    logger.LogInformation("Обновлен номер дела: {CaseNumber}", detailedCaseNumber);
-                }
-            }
-
-            // ИЗВЛЕКАЕМ ДАТУ НАЧАЛА ДЕЛА - НОВЫЙ КОД
-            var startDateMatch = Regex.Match(headerHtml, @"Дата начала:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
-            if (startDateMatch.Success)
-            {
-                var startDateStr = startDateMatch.Groups[1].Value.Trim();
-                if (DateTime.TryParse(startDateStr, out var startDate))
-                {
-                    courtCase.StartDate = startDate;
-                    logger.LogInformation("✅ Найдена дата начала дела: {StartDate}", startDate.ToString("dd.MM.yyyy"));
-                }
-                else
-                {
-                    logger.LogWarning("Не удалось распарсить дату начала: {StartDateStr}", startDateStr);
-                }
-            }
-            else
-            {
-                logger.LogInformation("Дата начала не найдена в заголовке");
-            }
-
-            // Извлекаем информацию о суде
-            var courtMatch = Regex.Match(headerHtml, @"Суд:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
-            if (courtMatch.Success)
-            {
-                var courtName = courtMatch.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(courtName))
-                {
-                    courtCase.CourtType = courtName;
-                    logger.LogInformation("Обновлен суд: {CourtName}", courtName);
-                }
-            }
-
-            // ИЗВЛЕКАЕМ ИМЯ СУДЬИ - УЛУЧШЕННАЯ ВЕРСИЯ
-            var judgeMatch = Regex.Match(headerHtml, @"Судья:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
-            if (judgeMatch.Success)
-            {
-                var judgeName = judgeMatch.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(judgeName))
-                {
-                    courtCase.JudgeName = judgeName;
-                    logger.LogInformation("✅ Найден судья: {JudgeName}", judgeName);
-                }
-            }
-            else
-            {
-                // Альтернативный способ: ищем через XPath
-                await ExtractJudgeWithXPath(page, courtCase);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при извлечении информации заголовка для дела {CaseNumber}", courtCase.CaseNumber);
-        }
-    }
-    /// <summary>
-    /// Альтернативный метод извлечения судьи через XPath
-    /// </summary>
-    private async Task ExtractJudgeWithXPath(IPage page, CourtCase courtCase)
-    {
-        try
-        {
-            logger.LogInformation("Пытаемся извлечь судью через XPath...");
-
-            // Ищем элемент с текстом "Судья:" и следующий за ним элемент с тегом b
-            var judgeXPath = "//div[contains(@class, 'text-right')]//p[contains(text(), 'Судья:')]/b";
-            var judgeElements = await page.XPathAsync(judgeXPath);
-
-            if (judgeElements.Any())
-            {
-                var judgeElement = judgeElements.First();
-                var judgeName = await judgeElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-            
-                if (!string.IsNullOrEmpty(judgeName))
-                {
-                    courtCase.JudgeName = judgeName;
-                    logger.LogInformation("✅ Найден судья через XPath: {JudgeName}", judgeName);
-                    return;
-                }
-            }
-
-            // Другой вариант XPath
-            var alternativeXPath = "//div[contains(@class, 'col-md-8') and contains(@class, 'text-right')]//b[preceding-sibling::text()[contains(., 'Судья:')]]";
-            var altJudgeElements = await page.XPathAsync(alternativeXPath);
-
-            if (altJudgeElements.Any())
-            {
-                var judgeElement = altJudgeElements.First();
-                var judgeName = await judgeElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-            
-                if (!string.IsNullOrEmpty(judgeName))
-                {
-                    courtCase.JudgeName = judgeName;
-                    logger.LogInformation("✅ Найден судья через альтернативный XPath: {JudgeName}", judgeName);
-                    return;
-                }
-            }
-
-            logger.LogInformation("❌ Судья не найден через XPath");
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при извлечении судьи через XPath");
+            courtCase.CaseResult = string.Empty;
         }
     }
 
@@ -811,6 +2047,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
 
+    [Obsolete("Obsolete")]
     private async Task ExtractPartiesInfo(IPage page, CourtCase courtCase)
     {
         try
@@ -870,6 +2107,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     /// <summary>
     /// Альтернативный метод извлечения сторон с использованием XPath (более надежный)
     /// </summary>
+    [Obsolete("Obsolete")]
     private async Task ExtractPartiesWithXPath(IPage page, CourtCase courtCase)
     {
         try
@@ -1171,7 +2409,8 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 {
                     eventText += $" ({movement.EventResult})";
                 }
-                keyEvents.Add(eventText);
+
+                if (eventText != null) keyEvents.Add(eventText);
             }
 
             if (keyEvents.Any())
@@ -1190,12 +2429,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     /// <summary>
     /// Обновляет категорию и подкатегорию из блока Категория
     /// </summary>
-    private async Task UpdateCategoryFromDlHorizontal(string categoryText, CourtCase courtCase)
+    private Task UpdateCategoryFromDlHorizontal(string categoryText, CourtCase courtCase)
     {
         try
         {
             if (string.IsNullOrEmpty(categoryText))
-                return;
+                return Task.CompletedTask;
 
             // Разделяем категорию и подкатегорию по символу "/"
             var parts = categoryText.Split('/', StringSplitOptions.RemoveEmptyEntries)
@@ -1218,6 +2457,8 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogWarning(ex, "Ошибка при обновлении категории из dl-horizontal");
         }
+
+        return Task.CompletedTask;
     }
     
     private static string CleanText(string text)

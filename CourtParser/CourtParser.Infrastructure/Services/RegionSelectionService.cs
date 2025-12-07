@@ -3,8 +3,13 @@ using PuppeteerSharp;
 
 namespace CourtParser.Infrastructure.Services;
 
+/// <summary>
+/// Выбор региона
+/// </summary>
+/// <param name="logger"></param>
 public class RegionSelectionService(ILogger<RegionSelectionService> logger)
 {
+   [Obsolete("Obsolete")]
    public async Task SelectRegionsAsync(IPage page, List<string> regionsToSelect)
     {
         try
@@ -97,6 +102,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    [Obsolete("Obsolete")]
     private async Task ProcessRegionTree(IPage page, List<string> regionsToSelect)
     {
         try
@@ -276,6 +282,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         return districtMap.ContainsKey(regionName) ? districtMap[regionName] : "Приволжский федеральный округ";
     }
 
+    [Obsolete("Obsolete")]
     private async Task ProcessFederalDistrict(IPage page, string districtName, List<string> regions)
     {
         try
@@ -303,6 +310,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    [Obsolete("Obsolete")]
     private async Task<bool> FindAndExpandFederalDistrict(IPage page, string districtName)
     {
         try
@@ -343,20 +351,21 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         // Возможные варианты названий для каждого округа
         var variantsMap = new Dictionary<string, string[]>
         {
-            ["Центральный федеральный округ"] = new[] { "Центральный федеральный округ", "Центральный ФО", "ЦФО" },
-            ["Северо-Западный федеральный округ"] = new[] { "Северо-Западный федеральный округ", "Северо-Западный ФО", "СЗФО" },
-            ["Южный федеральный округ"] = new[] { "Южный федеральный округ", "Южный ФО", "ЮФО" },
-            ["Северо-Кавказский федеральный округ"] = new[] { "Северо-Кавказский федеральный округ", "Северо-Кавказский ФО", "СКФО" },
-            ["Приволжский федеральный округ"] = new[] { "Приволжский федеральный округ", "Приволжский ФО", "ПФО" },
-            ["Уральский федеральный округ"] = new[] { "Уральский федеральный округ", "Уральский ФО", "УФО" },
-            ["Сибирский федеральный округ"] = new[] { "Сибирский федеральный округ", "Сибирский ФО", "СФО" },
-            ["Дальневосточный федеральный округ"] = new[] { "Дальневосточный федеральный округ", "Дальневосточный ФО", "ДФО" },
-            ["Крымский федеральный округ"] = new[] { "Крымский федеральный округ", "Крымский ФО", "КФО" }
+            ["Центральный федеральный округ"] = ["Центральный федеральный округ", "Центральный ФО", "ЦФО"],
+            ["Северо-Западный федеральный округ"] = ["Северо-Западный федеральный округ", "Северо-Западный ФО", "СЗФО"],
+            ["Южный федеральный округ"] = ["Южный федеральный округ", "Южный ФО", "ЮФО"],
+            ["Северо-Кавказский федеральный округ"] = ["Северо-Кавказский федеральный округ", "Северо-Кавказский ФО", "СКФО"],
+            ["Приволжский федеральный округ"] = ["Приволжский федеральный округ", "Приволжский ФО", "ПФО"],
+            ["Уральский федеральный округ"] = ["Уральский федеральный округ", "Уральский ФО", "УФО"],
+            ["Сибирский федеральный округ"] = ["Сибирский федеральный округ", "Сибирский ФО", "СФО"],
+            ["Дальневосточный федеральный округ"] = ["Дальневосточный федеральный округ", "Дальневосточный ФО", "ДФО"],
+            ["Крымский федеральный округ"] = ["Крымский федеральный округ", "Крымский ФО", "КФО"]
         };
 
-        return variantsMap.ContainsKey(districtName) ? variantsMap[districtName] : new[] { districtName };
+        return variantsMap.TryGetValue(districtName, out var value) ? value : [districtName];
     }
 
+    [Obsolete("Obsolete")]
     private async Task ExpandDistrict(IPage page, IElementHandle districtElement, string districtName)
     {
         try
@@ -369,7 +378,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             {
                 var expandButton = expandButtons.First();
                 
-                await WaitForElementVisibility(page, expandButton);
+                await WaitForElementVisibility(expandButton);
                 
                 // Проверяем состояние через JavaScript
                 var isExpanded = await page.EvaluateFunctionAsync<string>(@"
@@ -398,6 +407,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    [Obsolete("Obsolete")]
     private async Task FindAndSelectRegionInDistrict(IPage page, string regionName)
     {
         try
@@ -455,6 +465,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    [Obsolete("Obsolete")]
     private async Task SelectRegionSafe(IPage page, IElementHandle regionElement, string regionName)
     {
         try
@@ -468,7 +479,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             if (checkboxes.Any())
             {
                 var checkbox = checkboxes.First();
-                await WaitForElementVisibility(page, checkbox);
+                await WaitForElementVisibility(checkbox);
                 await checkbox.EvaluateFunctionAsync("el => el.click()");
                 logger.LogInformation("✅ Выбран регион {RegionName} через чекбокс", regionName);
                 await Task.Delay(500);
@@ -476,7 +487,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             }
 
             // 2. Если чекбокса нет, кликаем на текст региона через JavaScript
-            await WaitForElementVisibility(page, regionElement);
+            await WaitForElementVisibility(regionElement);
             await regionElement.EvaluateFunctionAsync("el => el.click()");
             logger.LogInformation("✅ Выбран регион {RegionName} через текст", regionName);
             
@@ -500,7 +511,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
-    private async Task WaitForElementVisibility(IPage page, IElementHandle element)
+    private async Task WaitForElementVisibility(IElementHandle element)
     {
         try
         {
@@ -570,6 +581,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    [Obsolete("Obsolete")]
     private async Task ConfirmSelection(IPage page)
     {
         try

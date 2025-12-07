@@ -1,4 +1,4 @@
-namespace CourtParser.Infrastructure.Options;
+namespace CourtParser.Common.Options;
 
 /// <summary>
 /// Настройки http клиента

@@ -1,6 +1,6 @@
 using CourtParser.Models.Entities;
 
-namespace CourtDecisions.Kafka.Messages;
+namespace CourtParser.Common.Kafka.Messages;
 
 public class CourtCaseMessage : CourtCase
 {

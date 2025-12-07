@@ -1,4 +1,4 @@
-namespace CourtDecisions.Kafka.Options;
+namespace CourtParser.Common.Options;
 
 public class KafkaOptions
 {

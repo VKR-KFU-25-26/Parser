@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AngleSharp.Html.Parser;
-using CourtParser.Core.Interfaces;
+using CourtParser.Common.Interfaces;
 using CourtParser.Models.Entities;
 using Microsoft.Extensions.Logging;
 

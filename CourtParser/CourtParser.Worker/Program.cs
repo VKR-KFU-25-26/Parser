@@ -1,5 +1,5 @@
 using System.Text;
-using CourtParser.Core.Interfaces;
+using CourtParser.Common.Interfaces;
 using CourtParser.Infrastructure;
 using CourtParser.Infrastructure.Hangfire.Initializer;
 using CourtParser.Infrastructure.Hangfire.Services;
@@ -14,7 +14,7 @@ Console.InputEncoding = Encoding.UTF8;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddHostedService<Mock>();
+//builder.Services.AddHostedService<Mock>();
 // Hangfire + PostgreSQL
 builder.Services.AddHangfire(config =>
 {

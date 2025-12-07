@@ -1,4 +1,4 @@
-namespace CourtParser.Core.Interfaces;
+namespace CourtParser.Common.Interfaces;
 
 public interface IRegionJobService
 {

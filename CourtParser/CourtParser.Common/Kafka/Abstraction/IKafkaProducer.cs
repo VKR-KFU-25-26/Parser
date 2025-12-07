@@ -1,6 +1,6 @@
-using CourtDecisions.Kafka.Messages;
+using CourtParser.Common.Kafka.Messages;
 
-namespace CourtDecisions.Kafka.Abstraction;
+namespace CourtParser.Common.Kafka.Abstraction;
 
 /// <summary>
 /// Интерфейс для взаимодействия с кафкой

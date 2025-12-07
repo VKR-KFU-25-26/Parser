@@ -1,6 +1,6 @@
 using CourtParser.Models.Entities;
 
-namespace CourtParser.Core.Interfaces;
+namespace CourtParser.Common.Interfaces;
 
 /// <summary>
 /// Интерфейс для парсера

@@ -1,5 +1,5 @@
-using CourtDecisions.Kafka.Abstraction;
-using CourtDecisions.Kafka.Options;
+using CourtParser.Common.Kafka.Abstraction;
+using CourtParser.Common.Options;
 using Microsoft.Extensions.Options;
 
 namespace CourtParser.Worker;

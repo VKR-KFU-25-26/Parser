@@ -1,4 +1,4 @@
-using CourtParser.Core.Interfaces;
+using CourtParser.Common.Interfaces;
 using CourtParser.Infrastructure.Services;
 using CourtParser.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -53,10 +53,13 @@ public class CourtDecisionsParser(
 
             // Заполнение формы
             await FillSearchForm(page, cancellationToken);
+        
+            // Ждем стабилизации формы
+            await Task.Delay(2000, cancellationToken);
 
             // Определяем федеральный округ и регионы для контекста парсера
             var (federalDistrict, actualRegions) = ParseRegionsForContext(regions);
-        
+    
             // Устанавливаем контекст поиска для парсера
             searchParser.SetSearchContext(
                 federalDistrict,
@@ -73,7 +76,15 @@ public class CourtDecisionsParser(
             {
                 logger.LogInformation("Начинаем выбор регионов: {Regions}", string.Join(", ", regions));
                 await regionService.SelectRegionsAsync(page, regions);
+            
+                // ВАЖНО: Ждем стабилизации после выбора регионов
                 await Task.Delay(3000, cancellationToken);
+            
+                // Проверяем, что форма все еще доступна
+                await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
+                { 
+                    Timeout = 5000 
+                });
             }
 
             // Выполнение поиска
@@ -108,7 +119,6 @@ public class CourtDecisionsParser(
             return allCases;
         }
     }
-
     // Новый метод для парсинга регионов и определения контекста
     private (string federalDistrict, List<string> regions) ParseRegionsForContext(List<string>? regions)
     {
@@ -192,36 +202,73 @@ public class CourtDecisionsParser(
 
     private async Task PerformSearch(IPage page, CancellationToken cancellationToken)
     {
-        logger.LogInformation("Нажимаем кнопку поиска...");
-        
-        var navigationTask = page.WaitForNavigationAsync(new NavigationOptions
+        try
         {
-            WaitUntil = [WaitUntilNavigation.Networkidle2],
-            Timeout = 30000
-        });
+            logger.LogInformation("Нажимаем кнопку поиска...");
         
-        await page.ClickAsync("#extendedSearch_search");
-        await navigationTask;
+            // 1. Ждем загрузки кнопки
+            await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
+            { 
+                Timeout = 10000,
+                Visible = true 
+            });
         
-        logger.LogInformation("Навигация завершена, страница результатов загружена");
-        await Task.Delay(3000, cancellationToken);
+            // 2. Даем время для стабилизации
+            await Task.Delay(2000, cancellationToken);
+        
+            // 3. Используем простой клик без ожидания навигации
+            await page.EvaluateExpressionAsync(@"
+            document.querySelector('#extendedSearch_search').click();
+        ");
+        
+            logger.LogInformation("Кнопка поиска нажата, ждем результатов...");
+        
+            // 4. Ждем загрузки результатов с увеличенным таймаутом
+            try
+            {
+                await page.WaitForSelectorAsync("table.table-bordered", new WaitForSelectorOptions 
+                { 
+                    Timeout = 45000,
+                    Visible = true 
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"Не удалось найти таблицу результатов: {ex.Message}");
+                // Пробуем альтернативный селектор
+                await page.WaitForSelectorAsync("table", new WaitForSelectorOptions 
+                { 
+                    Timeout = 10000 
+                });
+            }
+        
+            // 5. Даем время для полной загрузки
+            await Task.Delay(3000, cancellationToken);
+        
+            logger.LogInformation("Результаты поиска загружены");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Ошибка при выполнении поиска");
+            throw;
+        }
     }
-
     private async Task CheckDecisionsForCases(IPage page, List<CourtCase> cases, CancellationToken cancellationToken)
     {
         logger.LogInformation("Начинаем проверку решений для {Count} дел", cases.Count);
-        
+    
         var casesToCheck = cases.ToList();
-        
+    
         foreach (var courtCase in casesToCheck)
         {
             if (!string.IsNullOrEmpty(courtCase.Link))
             {
+                // Убираем передачу DecisionDate
                 await decisionService.CheckAndExtractDecisionAsync(page, courtCase, cancellationToken);
                 await Task.Delay(3000, cancellationToken);
             }
         }
-        
+    
         logger.LogInformation("Проверка решений завершена. Найдено решений: {Count}", 
             casesToCheck.Count(c => c.HasDecision));
     }
