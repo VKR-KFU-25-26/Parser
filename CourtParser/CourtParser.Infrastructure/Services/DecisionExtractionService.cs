@@ -1,4 +1,3 @@
-using System.Text;
 using CourtParser.Models.Entities;
 using Microsoft.Extensions.Logging;
 using PuppeteerSharp;
@@ -217,7 +216,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
     
     /// <summary>
-    /// Извлекает текст из HTML с сохранением структуры (ГЛАВНЫЙ МЕТОД)
+    /// Извлекает текст из HTML с сохранением структуры (ГЛАВНЫЙ МЕТОД) - ИСПРАВЛЕННАЯ ВЕРСИЯ
     /// </summary>
     private string ExtractTextWithStructure(string html)
     {
@@ -226,30 +225,36 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
         try
         {
-            // 1. Убираем комментарии
-            html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
-            
-            // 2. Обрабатываем защищенные данные
+            logger.LogDebug("Начинаем извлечение текста из HTML, длина: {Length} символов", html.Length);
+        
+            // ШАГ 1: Сначала обрабатываем защищенные данные - ДО ВСЕХ ОСТАЛЬНЫХ ПРЕОБРАЗОВАНИЙ
             html = ProcessProtectedData(html);
-            
-            // 3. Заменяем теги на разметку с сохранением структуры
+        
+            // ШАГ 2: Убираем комментарии
+            html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
+        
+            // ШАГ 3: Заменяем теги на разметку с сохранением структуры (СОХРАНЯЕМ ЗАЩИЩЕННЫЕ МЕТКИ)
             html = ReplaceHtmlTagsWithStructure(html);
-            
-            // 4. Очищаем от оставшихся HTML тегов
-            html = Regex.Replace(html, @"<[^>]*>", " ", RegexOptions.IgnoreCase);
-            
-            // 5. Декодируем HTML-сущности
+        
+            // ШАГ 4: Очищаем от оставшихся HTML тегов (НО НЕ ТРОГАЕМ ЗАЩИЩЕННЫЕ МЕТКИ)
+            html = CleanHtmlTagsPreservingMarkers(html);
+        
+            // ШАГ 5: Декодируем HTML-сущности
             html = System.Net.WebUtility.HtmlDecode(html);
-            
-            // 6. Обрабатываем специальные символы
+        
+            // ШАГ 6: Обрабатываем специальные символы
             html = ProcessSpecialCharacters(html);
-            
-            // 7. Улучшаем форматирование текста
+        
+            // ШАГ 7: Улучшаем форматирование текста
             html = ImproveTextFormatting(html);
-            
-            // 8. Убираем лишние пробелы и пустые строки
+        
+            // ШАГ 8: Восстанавливаем защищенные метки после всех преобразований
+            html = RestoreProtectedMarkers(html);
+        
+            // ШАГ 9: Убираем лишние пробелы и пустые строки
             html = CleanupWhitespace(html);
-            
+        
+            logger.LogDebug("Извлечение текста завершено, результат: {Length} символов", html.Length);
             return html.Trim();
         }
         catch (Exception ex)
@@ -260,91 +265,243 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// Обрабатывает защищенные данные (ФИО, адреса и т.д.)
+    /// Очищает HTML теги, но сохраняет защищенные метки
     /// </summary>
-    private string ProcessProtectedData(string html)
+    private string CleanHtmlTagsPreservingMarkers(string html)
     {
-        // Заменяем защищенные span'ы
-        var protectedSpans = Regex.Matches(html, 
-            @"<span[^>]*class\s*=\s*[""']?(FIO\d+|Address\d+|others\d+|Data\d+|Nomer\d+)[""']?[^>]*>(.*?)</span>", 
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        
-        foreach (Match match in protectedSpans)
+        try
         {
-            var className = GetProtectedClassName(match.Value);
-            var innerText = match.Groups[2].Value.Trim();
-            var replacement = GetProtectedReplacement(className, innerText);
-            html = html.Replace(match.Value, replacement);
-        }
+            // Временные маркеры для защиты замен
+            var protectedMarkers = new Dictionary<string, string>();
         
-        return html;
-    }
-
-    private string GetProtectedClassName(string htmlTag)
-    {
-        var match = Regex.Match(htmlTag, @"class=[""']?(FIO\d+|Address\d+|others\d+|Data\d+|Nomer\d+)[""']?", 
-            RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value.ToLower() : "";
-    }
-
-    private string GetProtectedReplacement(string className, string innerText)
-    {
-        if (className.StartsWith("fio"))
-            return "<ФИО>";
-        else if (className.StartsWith("address"))
-            return "<адрес>";
-        else if (className.StartsWith("others"))
-            return "<данные изъяты>";
-        else if (className.StartsWith("data"))
+            // Заменяем защищенные данные на временные маркеры
+            var protectedDataPattern = @"(<ФИО>\d*</ФИО>|<адрес>\d*</адрес>|<данные изъяты>\d*</данные изъяты>|<дата>\d*</дата>|<номер>\d*</номер>)";
+            var matches = Regex.Matches(html, protectedDataPattern);
+        
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var marker = $"###PROTECTED{i}###";
+                protectedMarkers[marker] = matches[i].Value;
+                html = html.Replace(matches[i].Value, marker);
+            }
+        
+            // Теперь удаляем все HTML теги
+            html = Regex.Replace(html, @"<[^>]*>", " ", RegexOptions.IgnoreCase);
+        
+            // Восстанавливаем защищенные данные
+            foreach (var marker in protectedMarkers)
+            {
+                html = html.Replace(marker.Key, marker.Value);
+            }
+        
+            return html;
+        }
+        catch (Exception ex)
         {
-            if (DateTime.TryParse(innerText, out var date))
-                return date.ToString("dd.MM.yyyy");
-            return "<дата>";
+            logger.LogWarning(ex, "Ошибка при очистке HTML тегов с сохранением маркеров");
+            return html;
         }
-        else if (className.StartsWith("nomer"))
-            return "<номер>";
-        
-        return innerText;
     }
 
     /// <summary>
-    /// Заменяет HTML теги на текстовую разметку с сохранением структуры
+    /// Восстанавливает защищенные метки после всех преобразований
+    /// </summary>
+    private string RestoreProtectedMarkers(string text)
+    {
+        try
+        {
+            // Обеспечиваем корректное форматирование защищенных меток
+            text = text.Replace(" <ФИО>", " <ФИО>");
+            text = text.Replace("</ФИО> ", "</ФИО> ");
+            text = text.Replace(" <адрес>", " <адрес>");
+            text = text.Replace("</адрес> ", "</адрес> ");
+            text = text.Replace(" <дата>", " <дата>");
+            text = text.Replace("</дата> ", "</дата> ");
+            text = text.Replace(" <номер>", " <номер>");
+            text = text.Replace("</номер> ", "</номер> ");
+            text = text.Replace(" <данные изъяты>", " <данные изъяты>");
+            text = text.Replace("</данные изъяты> ", "</данные изъяты> ");
+        
+            // Убираем лишние пробелы внутри меток
+            text = Regex.Replace(text, @"<(\s*ФИО\s*)>", "<ФИО>");
+            text = Regex.Replace(text, @"</\s*ФИО\s*>", "</ФИО>");
+            text = Regex.Replace(text, @"<(\s*адрес\s*)>", "<адрес>");
+            text = Regex.Replace(text, @"</\s*адрес\s*>", "</адрес>");
+            text = Regex.Replace(text, @"<(\s*дата\s*)>", "<дата>");
+            text = Regex.Replace(text, @"</\s*дата\s*>", "</дата>");
+            text = Regex.Replace(text, @"<(\s*номер\s*)>", "<номер>");
+            text = Regex.Replace(text, @"</\s*номер\s*>", "</номер>");
+            text = Regex.Replace(text, @"<(\s*данные изъяты\s*)>", "<данные изъяты>");
+            text = Regex.Replace(text, @"</\s*данные изъяты\s*>", "</данные изъяты>");
+        
+            return text;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при восстановлении защищенных маркеров");
+            return text;
+        }
+    }
+
+    /// <summary>
+    /// Обрабатывает защищенные данные (ФИО, адреса и т.д.) - УЛУЧШЕННАЯ ВЕРСИЯ
+    /// </summary>
+    private string ProcessProtectedData(string html)
+    {
+        try
+        {
+            logger.LogDebug("Начинаем обработку защищенных данных");
+        
+            // ОБРАБОТКА ЗАЩИЩЕННЫХ СПАНОВ с порядковыми номерами
+            var protectedPatterns = new Dictionary<string, string>
+            {
+                { @"<span[^>]*class\s*=\s*[""']?(FIO\d+)[""']?[^>]*>(.*?)</span>", "<ФИО>$2</ФИО>" },
+                { @"<span[^>]*class\s*=\s*[""']?(Address\d+)[""']?[^>]*>(.*?)</span>", "<адрес>$2</адрес>" },
+                { @"<span[^>]*class\s*=\s*[""']?(others\d+)[""']?[^>]*>(.*?)</span>", "<данные изъяты>$2</данные изъяты>" },
+                { @"<span[^>]*class\s*=\s*[""']?(Data\d+)[""']?[^>]*>(.*?)</span>", "<дата>$2</дата>" },
+                { @"<span[^>]*class\s*=\s*[""']?(Nomer\d+)[""']?[^>]*>(.*?)</span>", "<номер>$2</номер>" }
+            };
+
+            foreach (var pattern in protectedPatterns)
+            {
+                var matches = Regex.Matches(html, pattern.Key, 
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            
+                if (matches.Count > 0)
+                {
+                    logger.LogDebug("Найдено защищенных элементов типа {Type}: {Count}", 
+                        pattern.Value, matches.Count);
+                }
+            
+                foreach (Match match in matches)
+                {
+                    var innerText = match.Groups[2].Value.Trim();
+                
+                    // Создаем правильную замену
+                    string replacement;
+                    if (pattern.Value.Contains("ФИО"))
+                    {
+                        replacement = "<ФИО>" + CleanProtectedInnerText(innerText) + "</ФИО>";
+                    }
+                    else if (pattern.Value.Contains("адрес"))
+                    {
+                        replacement = "<адрес>" + CleanProtectedInnerText(innerText) + "</адрес>";
+                    }
+                    else if (pattern.Value.Contains("данные изъяты"))
+                    {
+                        replacement = "<данные изъяты>" + CleanProtectedInnerText(innerText) + "</данные изъяты>";
+                    }
+                    else if (pattern.Value.Contains("дата"))
+                    {
+                        // Для дат пытаемся распарсить
+                        if (DateTime.TryParse(innerText, out var date))
+                            replacement = "<дата>" + date.ToString("dd.MM.yyyy") + "</дата>";
+                        else
+                            replacement = "<дата>" + CleanProtectedInnerText(innerText) + "</дата>";
+                    }
+                    else if (pattern.Value.Contains("номер"))
+                    {
+                        replacement = "<номер>" + CleanProtectedInnerText(innerText) + "</номер>";
+                    }
+                    else
+                    {
+                        replacement = pattern.Value.Replace("$2", CleanProtectedInnerText(innerText));
+                    }
+                
+                    html = html.Replace(match.Value, replacement);
+                }
+            }
+        
+            logger.LogDebug("Защищенные данные обработаны");
+            return html;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при обработке защищенных данных");
+            return html;
+        }
+    }
+
+    /// <summary>
+    /// Очищает внутренний текст защищенных элементов
+    /// </summary>
+    private string CleanProtectedInnerText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+    
+        // Убираем HTML теги, но оставляем текст
+        text = Regex.Replace(text, @"<[^>]*>", "", RegexOptions.IgnoreCase);
+        // Декодируем HTML сущности
+        text = System.Net.WebUtility.HtmlDecode(text);
+        // Убираем лишние пробелы
+        return text.Trim();
+    }
+
+    /// <summary>
+    /// Заменяет HTML теги на текстовую разметку с сохранением структуры (УЛУЧШЕННАЯ ВЕРСИЯ)
     /// </summary>
     private string ReplaceHtmlTagsWithStructure(string html)
     {
-        // Сохраняем заголовки и важные элементы
-        html = Regex.Replace(html, @"<(h[1-6])[^>]*>(.*?)</\1>", "\n\n### $2 ###\n\n", 
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        try
+        {
+            // СОХРАНЯЕМ ЗАЩИЩЕННЫЕ МЕТКИ
+            var protectedMarkers = new Dictionary<string, string>();
+            var protectedDataPattern = @"(<ФИО>.*?</ФИО>|<адрес>.*?</адрес>|<данные изъяты>.*?</данные изъяты>|<дата>.*?</дата>|<номер>.*?</номер>)";
+            var matches = Regex.Matches(html, protectedDataPattern, RegexOptions.Singleline);
         
-        // Абзацы - двойной перенос
-        html = Regex.Replace(html, @"<p[^>]*>", "\n\n", RegexOptions.IgnoreCase);
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var marker = $"###PROTECTED{i}###";
+                protectedMarkers[marker] = matches[i].Value;
+                html = html.Replace(matches[i].Value, marker);
+            }
         
-        // Разрывы строк - одиночный перенос
-        html = Regex.Replace(html, @"<br[^>]*>", "\n", RegexOptions.IgnoreCase);
+            // Сохраняем заголовки и важные элементы
+            html = Regex.Replace(html, @"<(h[1-6])[^>]*>(.*?)</\1>", "\n\n### $2 ###\n\n", 
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
         
-        // Div'ы - тоже могут создавать абзацы
-        html = Regex.Replace(html, @"<div[^>]*>", "\n", RegexOptions.IgnoreCase);
+            // Абзацы - двойной перенос
+            html = Regex.Replace(html, @"<p[^>]*>", "\n\n", RegexOptions.IgnoreCase);
         
-        // Списки
-        html = Regex.Replace(html, @"<li[^>]*>", "\n• ", RegexOptions.IgnoreCase);
+            // Разрывы строк - одиночный перенос
+            html = Regex.Replace(html, @"<br[^>]*>", "\n", RegexOptions.IgnoreCase);
         
-        // Таблицы - упрощаем
-        html = Regex.Replace(html, @"<tr[^>]*>", "\n", RegexOptions.IgnoreCase);
-        html = Regex.Replace(html, @"<td[^>]*>", " | ", RegexOptions.IgnoreCase);
+            // Div'ы - тоже могут создавать абзацы
+            html = Regex.Replace(html, @"<div[^>]*>", "\n", RegexOptions.IgnoreCase);
         
-        // Форматирование текста
-        html = Regex.Replace(html, @"<(b|strong)[^>]*>(.*?)</\1>", "**$2**", 
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        html = Regex.Replace(html, @"<(i|em)[^>]*>(.*?)</\1>", "_$2_", 
-            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            // Списки
+            html = Regex.Replace(html, @"<li[^>]*>", "\n• ", RegexOptions.IgnoreCase);
         
-        // Убираем закрывающие теги
-        html = Regex.Replace(html, @"</(p|div|span|li|ul|ol|table|tr|td)[^>]*>", "", 
-            RegexOptions.IgnoreCase);
+            // Таблицы - упрощаем
+            html = Regex.Replace(html, @"<tr[^>]*>", "\n", RegexOptions.IgnoreCase);
+            html = Regex.Replace(html, @"<td[^>]*>", " | ", RegexOptions.IgnoreCase);
         
-        return html;
+            // Форматирование текста
+            html = Regex.Replace(html, @"<(b|strong)[^>]*>(.*?)</\1>", "**$2**", 
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            html = Regex.Replace(html, @"<(i|em)[^>]*>(.*?)</\1>", "_$2_", 
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+            // Убираем закрывающие теги
+            html = Regex.Replace(html, @"</(p|div|span|li|ul|ol|table|tr|td)[^>]*>", "", 
+                RegexOptions.IgnoreCase);
+        
+            // ВОССТАНАВЛИВАЕМ ЗАЩИЩЕННЫЕ МЕТКИ
+            foreach (var marker in protectedMarkers)
+            {
+                html = html.Replace(marker.Key, marker.Value);
+            }
+        
+            return html;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при замене HTML тегов");
+            return html;
+        }
     }
-
+    
     /// <summary>
     /// Обрабатывает специальные символы HTML
     /// </summary>
@@ -1325,314 +1482,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     
     
     
-    
-
-    
-    /// <summary>
-    /// Извлекает текст из HTML, сохраняя структуру и защищенные данные
-    /// </summary>
-    private string ExtractTextFromHtml(string html)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-            return string.Empty;
-
-        try
-        {
-            logger.LogInformation("Извлекаем текст с сохранением структуры...");
-        
-            // 1. Убираем комментарии
-            html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
-        
-            // 2. СОХРАНЯЕМ защищенные данные (ФИО, адреса и т.д.)
-            var protectedData = new Dictionary<string, string>();
-            int markerIndex = 0;
-        
-            // Находим защищенные span'ы (FIO, Address, others, Data, Nomer)
-            var protectedSpans = Regex.Matches(html, 
-                @"<span[^>]*class\s*=\s*[""']?(FIO\d+|Address\d+|others\d+|Data\d+|Nomer\d+)[""']?[^>]*>(.*?)</span>", 
-                RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        
-            foreach (Match match in protectedSpans)
-            {
-                var marker = $"{{PROTECTED_{markerIndex++}}}";
-                protectedData[marker] = GetProtectedText(match.Value, match.Groups[2].Value);
-                html = html.Replace(match.Value, marker);
-            }
-        
-            // 3. ЗАМЕНА ТЕГОВ с сохранением форматирования
-        
-            // Сохраняем жирный текст: <b> и <strong>
-            html = Regex.Replace(html, @"<(b|strong)[^>]*>(.*?)</\1>", "**$2**", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        
-            // Сохраняем курсив: <i> и <em>
-            html = Regex.Replace(html, @"<(i|em)[^>]*>(.*?)</\1>", "*$2*", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        
-            // Абзацы - двойной перенос строки
-            html = Regex.Replace(html, @"<p[^>]*>", "\n\n", RegexOptions.IgnoreCase);
-        
-            // Разрывы строк - одинарный перенос
-            html = Regex.Replace(html, @"<br[^>]*>", "\n", RegexOptions.IgnoreCase);
-        
-            // Div'ы - тоже могут создавать абзацы
-            html = Regex.Replace(html, @"<div[^>]*>", "\n", RegexOptions.IgnoreCase);
-        
-            // Заголовки - делаем их заглавными и добавляем отступ
-            html = Regex.Replace(html, @"<(h[1-6])[^>]*>(.*?)</\1>", "\n\n$2\n\n", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        
-            // Убираем закрывающие теги p и div
-            html = Regex.Replace(html, @"</(p|div)[^>]*>", "\n", RegexOptions.IgnoreCase);
-        
-            // 4. Убираем все остальные HTML-теги, оставляя текст
-            html = Regex.Replace(html, @"<[^>]*>", " ", RegexOptions.IgnoreCase);
-        
-            // 5. Восстанавливаем защищенные данные
-            foreach (var kvp in protectedData)
-            {
-                html = html.Replace(kvp.Key, kvp.Value);
-            }
-        
-            // 6. Декодируем HTML-сущности
-            html = System.Net.WebUtility.HtmlDecode(html);
-        
-            // 7. Заменяем HTML-специальные символы
-            html = html.Replace("&nbsp;", " ");
-            html = html.Replace("&amp;", "&");
-            html = html.Replace("&lt;", "<");
-            html = html.Replace("&gt;", ">");
-            html = html.Replace("&quot;", "\"");
-        
-            // 8. ОБРАБОТКА ПРОБЕЛОВ И ПЕРЕНОСОВ
-        
-            // Убираем множественные пробелы внутри строк
-            html = Regex.Replace(html, @"[ \t]+", " ");
-        
-            // Убираем пробелы в начале и конце строк
-            var lines = html.Split(['\n', '\r'], StringSplitOptions.None);
-            for (int i = 0; i < lines.Length; i++)
-            {
-                lines[i] = lines[i].Trim();
-            }
-        
-            // Объединяем обратно, сохраняя логическую структуру
-            var resultLines = new List<string>();
-            bool previousLineWasEmpty = false;
-        
-            foreach (var line in lines)
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    // Добавляем только одну пустую строку между абзацами
-                    if (!previousLineWasEmpty && resultLines.Count > 0)
-                    {
-                        resultLines.Add("");
-                        previousLineWasEmpty = true;
-                    }
-                }
-                else
-                {
-                    // Восстанавливаем структуру предложений
-                    var processedLine = RestoreSentenceStructure(line); // СОЗДАЕМ НОВУЮ ПЕРЕМЕННУЮ
-                    resultLines.Add(processedLine);
-                    previousLineWasEmpty = false;
-                }
-            }
-        
-            html = string.Join("\n", resultLines);
-        
-            // 9. Восстанавливаем структуру документа
-            html = RestoreDocumentStructure(html);
-        
-            logger.LogInformation("Текст извлечен, длина: {Length} символов", html.Length);
-            return html.Trim();
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при извлечении текста из HTML");
-            return string.Empty;
-        }
-    }
-
-    /// <summary>
-    /// Восстанавливает структуру предложений
-    /// </summary>
-    private string RestoreSentenceStructure(string line)
-    {
-        try
-        {
-            // Восстанавливаем переносы после знаков препинания
-            line = Regex.Replace(line, @"([.!?])\s+([А-ЯA-Z])", "$1\n$2");
-            line = Regex.Replace(line, @"([:;])\s+([А-ЯA-Z])", "$1\n$2");
-        
-            // Убираем лишние пробелы вокруг дефисов
-            line = Regex.Replace(line, @"\s+-\s+", "-");
-            line = Regex.Replace(line, @"\s*,\s*", ", ");
-        
-            return line;
-        }
-        catch
-        {
-            return line;
-        }
-    }
-
-    /// <summary>
-    /// Восстанавливает структуру документа
-    /// </summary>
-    private string RestoreDocumentStructure(string text)
-    {
-        try
-        {
-            var lines = text.Split('\n');
-            var result = new StringBuilder();
-            bool inList = false;
-        
-            for (int i = 0; i < lines.Length; i++)
-            {
-                var line = lines[i].Trim();
-            
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    // Если предыдущая строка не была пустой, добавляем разделитель
-                    if (i > 0 && !string.IsNullOrWhiteSpace(lines[i - 1]) && 
-                        i < lines.Length - 1 && !string.IsNullOrWhiteSpace(lines[i + 1]))
-                    {
-                        result.AppendLine();
-                    }
-                    inList = false;
-                    continue;
-                }
-            
-                // Проверяем, является ли строка заголовком
-                bool isHeader = IsHeaderLine(line);
-                bool isListItem = IsListItem(line);
-            
-                // Если начинается новый список после текста
-                if (isListItem && !inList && result.Length > 0)
-                {
-                    result.AppendLine();
-                }
-            
-                // Обработка заголовков
-                if (isHeader)
-                {
-                    result.AppendLine();
-                    result.AppendLine(line.ToUpper());
-                    result.AppendLine();
-                    inList = false;
-                }
-                else if (isListItem)
-                {
-                    // Форматирование списка
-                    result.AppendLine($"• {line}");
-                    inList = true;
-                }
-                else
-                {
-                    // Обычный текст
-                    if (inList)
-                    {
-                        result.AppendLine(); // Завершаем список
-                        inList = false;
-                    }
-                    result.AppendLine(line);
-                }
-            }
-        
-            return result.ToString().Trim();
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при восстановлении структуры документа");
-            return text;
-        }
-    }
-
-    /// <summary>
-    /// Проверяет, является ли строка элементом списка
-    /// </summary>
-    private bool IsListItem(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
-            return false;
-    
-        return line.StartsWith("- ") || 
-               line.StartsWith("• ") || 
-               line.StartsWith("* ") ||
-               Regex.IsMatch(line, @"^\d+[\.\)]\s") ||
-               Regex.IsMatch(line, @"^[а-я]\)\s", RegexOptions.IgnoreCase);
-    }
-
-    /// <summary>
-    /// Получает текст для защищенного элемента
-    /// </summary>
-    private string GetProtectedText(string htmlTag, string innerText)
-    {
-        try
-        {
-            // Определяем тип защищенных данных по классу
-            if (htmlTag.Contains("class=\"FIO") || htmlTag.Contains("class='FIO"))
-            {
-                return "<ФИО>";
-            }
-            else if (htmlTag.Contains("class=\"Address") || htmlTag.Contains("class='Address"))
-            {
-                return "<адрес>";
-            }
-            else if (htmlTag.Contains("class=\"others") || htmlTag.Contains("class='others"))
-            {
-                return "<данные изъяты>";
-            }
-            else if (htmlTag.Contains("class=\"Data") || htmlTag.Contains("class='Data"))
-            {
-                // Пытаемся извлечь дату из содержимого
-                if (DateTime.TryParse(innerText, out var date))
-                {
-                    return date.ToString("dd.MM.yyyy");
-                }
-                return "<дата>";
-            }
-            else if (htmlTag.Contains("class=\"Nomer") || htmlTag.Contains("class='Nomer"))
-            {
-                return "<номер>";
-            }
-        
-            return innerText.Trim();
-        }
-        catch
-        {
-            return innerText.Trim();
-        }
-    }
-
-
-    /// <summary>
-    /// Определяет, является ли строка заголовком
-    /// </summary>
-    private bool IsHeaderLine(string line)
-    {
-        if (string.IsNullOrWhiteSpace(line))
-            return false;
-    
-        var upperLine = line.ToUpper();
-    
-        var headers = new[]
-        {
-            "РЕШЕНИЕ",
-            "ОПРЕДЕЛЕНИЕ",
-            "ПОСТАНОВЛЕНИЕ",
-            "ИМЕНЕМ РОССИЙСКОЙ ФЕДЕРАЦИИ",
-            "УСТАНОВИЛ:",
-            "РЕШИЛ:",
-            "ОПРЕДЕЛИЛ:",
-            "ПОСТАНОВИЛ:"
-        };
-    
-        return headers.Any(header => upperLine == header || 
-                                     (upperLine.StartsWith(header) && upperLine.Length < header.Length + 10));
-    }
-    
-    
-    
     [Obsolete("Obsolete")]
     private async Task ExtractDetailedCaseInfo(IPage page, CourtCase courtCase)
     {
@@ -2372,9 +2221,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             // Сохраняем движения дела
             courtCase.CaseMovements = movements;
         
-            // Также обновляем описание с ключевыми событиями
-            UpdateDescriptionWithKeyEvents(courtCase);
-        
             logger.LogInformation("✅ Извлечено событий движения дела: {Count}", movements.Count);
         }
         catch (Exception ex)
@@ -2382,49 +2228,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             logger.LogWarning(ex, "Ошибка при извлечении деталей движения дела {CaseNumber}", courtCase.CaseNumber);
         }
     }
-
-    /// <summary>
-    /// Обновляет описание дела с ключевыми событиями
-    /// </summary>
-    private void UpdateDescriptionWithKeyEvents(CourtCase courtCase)
-    {
-        try
-        {
-            var keyEvents = new List<string>();
-        
-            // Берем первые 3-5 ключевых событий для описания
-            var importantEvents = courtCase.CaseMovements
-                .Where(m => !string.IsNullOrEmpty(m.EventName))
-                .Take(5)
-                .ToList();
-
-            foreach (var movement in importantEvents)
-            {
-                var eventText = movement.EventName;
-                if (movement.EventDate.HasValue)
-                {
-                    eventText += $": {movement.EventDate.Value:dd.MM.yyyy}";
-                }
-                if (!string.IsNullOrEmpty(movement.EventResult))
-                {
-                    eventText += $" ({movement.EventResult})";
-                }
-
-                if (eventText != null) keyEvents.Add(eventText);
-            }
-
-            if (keyEvents.Any())
-            {
-                courtCase.Description = string.Join("; ", keyEvents);
-                logger.LogInformation("✅ Обновлено описание с ключевыми событиями: {Description}", courtCase.Description);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при обновлении описания с ключевыми событиями");
-        }
-    }
-
+    
     
     /// <summary>
     /// Обновляет категорию и подкатегорию из блока Категория
@@ -2459,21 +2263,5 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
 
         return Task.CompletedTask;
-    }
-    
-    private static string CleanText(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return string.Empty;
-
-        // Убираем все лишние пробелы, переносы, табы
-        var cleaned = string.Join(" ", text.Split([' ', '\n', '\r', '\t'], 
-            StringSplitOptions.RemoveEmptyEntries)).Trim();
-
-        // Убираем лишние пробелы вокруг дефисов и других символов
-        cleaned = Regex.Replace(cleaned, @"\s+", " ");
-        cleaned = Regex.Replace(cleaned, @"\s*-\s*", "-");
-        
-        return cleaned;
     }
 }

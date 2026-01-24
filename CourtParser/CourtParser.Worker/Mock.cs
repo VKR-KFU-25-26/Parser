@@ -9,7 +9,7 @@ public class Mock : BackgroundService
     private readonly ILogger<Mock> _logger;
     private readonly KafkaOptions _kafkaOptions;
     private readonly IServiceProvider _serviceProvider;
-    private readonly TimeSpan _interval = TimeSpan.FromSeconds(30); 
+    private readonly TimeSpan _interval = TimeSpan.FromSeconds(180); 
 
     public Mock(
         ILogger<Mock> logger,

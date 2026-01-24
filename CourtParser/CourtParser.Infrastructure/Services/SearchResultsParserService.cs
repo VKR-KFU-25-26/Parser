@@ -42,7 +42,7 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 {
                     await page.WaitForSelectorAsync("table", new WaitForSelectorOptions 
                     { 
-                        Timeout = 5000 
+                        Timeout = 10000 
                     });
                 }
 
@@ -174,8 +174,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 CaseNumber = TextCleaner.CleanText(caseNumber),
                 Link = link,
                 CourtType = TextCleaner.CleanText(courtName),
-                Description = $"Поступило: {dates.receivedDate}, Решение: {dates.decisionDate}",
-                Subject = $"Истец: {plaintiff} | Ответчик: {defendant}",
                 HasDecision = false,
                 DecisionLink = string.Empty,
                 
@@ -312,17 +310,12 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 }
             }
 
-            var dates = DateExtractor.ExtractDates(datesText);
-            var (plaintiff, defendant) = TextCleaner.ExtractParties(partiesText);
-
             return new CourtCase
             {
                 Title = $"{TextCleaner.CleanText(courtName)} - {TextCleaner.CleanText(caseNumber)}",
                 CaseNumber = TextCleaner.CleanText(caseNumber),
                 Link = link,
                 CourtType = TextCleaner.CleanText(courtName),
-                Description = $"Поступило: {dates.receivedDate}, Решение: {dates.decisionDate}",
-                Subject = $"Истец: {plaintiff} | Ответчик: {defendant}",
                 HasDecision = false,
                 DecisionLink = string.Empty,
             };
@@ -372,18 +365,13 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                     }
                 }
             }
-
-            var dates = DateExtractor.ExtractDates(datesText);
-            var (plaintiff, defendant) = TextCleaner.ExtractParties(partiesText);
-
+            
             return new CourtCase
             {
                 Title = $"{TextCleaner.CleanText(courtName)} - {TextCleaner.CleanText(caseNumber)}",
                 CaseNumber = TextCleaner.CleanText(caseNumber),
                 Link = linkUrl,
                 CourtType = TextCleaner.CleanText(courtName),
-                Description = $"Поступило: {dates.receivedDate}, Решение: {dates.decisionDate}",
-                Subject = $"Истец: {plaintiff} | Ответчик: {defendant}",
                 HasDecision = false,
                 DecisionLink = string.Empty,
             };

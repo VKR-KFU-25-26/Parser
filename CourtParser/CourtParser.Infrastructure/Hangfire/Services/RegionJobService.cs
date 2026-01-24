@@ -83,8 +83,6 @@ public class RegionJobService : IRegionJobService
             Link = model.Link,
             CaseNumber = model.CaseNumber,
             CourtType = model.CourtType,
-            Description = model.Description,
-            Subject = model.Subject,
             Timestamp = DateTime.UtcNow,
             HasDecision = model.HasDecision,
             DecisionLink = model.DecisionLink,
@@ -145,11 +143,6 @@ public class RegionJobService : IRegionJobService
             if (message.ReceivedDate.HasValue)
             {
                 Console.WriteLine($"   📅 Поступление: {message.ReceivedDate.Value:dd.MM.yyyy}");
-            }
-
-            if (!string.IsNullOrEmpty(message.Description))
-            {
-                Console.WriteLine($"   📝 {TruncateText(message.Description, 70)}");
             }
 
             if (!string.IsNullOrEmpty(message.Plaintiff))

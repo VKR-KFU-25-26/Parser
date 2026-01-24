@@ -36,20 +36,10 @@ public class CourtCase
     public string CourtType { get; set; } = null!;
     
     /// <summary>
-    /// Описание
-    /// </summary>
-    public string Description { get; set; } = null!;
-    
-    /// <summary>
     /// Ссылка на оригинальный сайт суда
     /// </summary>
     public string OriginalCaseLink { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Суть спора (например: "о несостоятельности (банкротстве) физических лиц")
-    /// </summary>
-    public string Subject { get; set; } = null!;
-
+    
     /// <summary>
     /// Есть ли решение
     /// </summary>
@@ -96,7 +86,7 @@ public class CourtCase
     public string? Representatives { get; set; } = string.Empty;
     
     /// <summary>
-    /// Дата поступления дела
+    /// Дата рассмотрения (Дата поступления дела)
     /// </summary>
     public DateTime? ReceivedDate { get; set; }
     

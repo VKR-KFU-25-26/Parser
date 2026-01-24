@@ -116,9 +116,7 @@ public class SudactParser : IParser
                         Title = title,
                         CaseNumber = caseNumber, // Новое поле
                         Link = link,
-                        CourtType = courtType,
-                        Description = additionElement != null ? CleanText(additionElement.TextContent) : string.Empty,
-                        Subject = subject
+                        CourtType = courtType
                     };
 
                     cases.Add(courtCase);

@@ -23,12 +23,28 @@ public class CourtDecisionsParser(
         List<string>? regions = null, 
         CancellationToken cancellationToken = default)
     {
+        using var httpClient = new HttpClient();
+        var response = await httpClient.GetAsync("https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai/", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            // Логируем проблему и пропускаем регион
+            logger.LogWarning("Сайт недоступен, пропускаем парсинг");
+            return [];
+        }
         await new BrowserFetcher().DownloadAsync();
 
         var launchOptions = new LaunchOptions
         {
             Headless = false,
-            Args = ["--no-sandbox", "--disable-setuid-sandbox"]
+            Timeout = 120000, // Увеличить общий таймаут
+            Args =
+            [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--disable-gpu"
+            ]
         };
 
         await using var browser = await Puppeteer.LaunchAsync(launchOptions);
@@ -46,7 +62,7 @@ public class CourtDecisionsParser(
 
             await page.WaitForSelectorAsync("#extendedSearch_case_type", new WaitForSelectorOptions 
             { 
-                Timeout = 30000 
+                Timeout = 60000 
             });
 
             logger.LogInformation("Форма загружена, начинаем заполнение...");
@@ -83,7 +99,7 @@ public class CourtDecisionsParser(
                 // Проверяем, что форма все еще доступна
                 await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
                 { 
-                    Timeout = 5000 
+                    Timeout = 10000 
                 });
             }
 
