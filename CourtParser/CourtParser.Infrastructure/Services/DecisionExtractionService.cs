@@ -71,6 +71,166 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.DecisionType = "Ошибка при проверке";
         }
     }
+    
+    /// <summary>
+    /// Извлекает решение и сохраняет HTML с минимальной очисткой
+    /// </summary>
+    private async Task<bool> ExtractDecisionWithHtml(IPage page, CourtCase courtCase)
+{
+    try
+    {
+        logger.LogInformation("Извлекаем решение с HTML для дела {CaseNumber}", courtCase.CaseNumber);
+
+        // Получаем HTML страницы
+        var pageContent = await page.GetContentAsync();
+        
+        // Находим начало решения
+        int startIndex = FindDecisionStartInHtml(pageContent);
+        if (startIndex == -1)
+        {
+            logger.LogInformation("Не найдено начало решения в HTML");
+            return false;
+        }
+
+        logger.LogDebug("Начало решения найдено на позиции {StartIndex}", startIndex);
+        
+        // Вырезаем HTML от начала решения
+        string htmlSolution = pageContent.Substring(startIndex);
+        
+        // Ищем конец решения
+        int endIndex = FindDecisionEndInHtml(htmlSolution);
+        if (endIndex == -1)
+        {
+            endIndex = Math.Min(50000, htmlSolution.Length);
+            logger.LogDebug("Конец решения не найден, берем первые {EndIndex} символов", endIndex);
+        }
+        else
+        {
+            endIndex = Math.Min(endIndex, 50000);
+            logger.LogDebug("Конец решения найден на позиции {EndIndex}", endIndex);
+        }
+
+        htmlSolution = htmlSolution.Substring(0, endIndex);
+        logger.LogDebug("Извлечен HTML длиной {Length} символов", htmlSolution.Length);
+        
+        // Минимальная обработка для безопасности
+        string processedHtml = CleanHtmlForStorage(htmlSolution);
+        
+        logger.LogDebug("После очистки HTML длиной {Length} символов", processedHtml.Length);
+        
+        if (string.IsNullOrWhiteSpace(processedHtml) || processedHtml.Length < 500)
+        {
+            logger.LogInformation("Извлеченный HTML слишком короткий: {Length}", processedHtml.Length);
+            return false;
+        }
+
+        // Проверяем, что это действительно решение
+        if (IsValidDecisionContent(processedHtml))
+        {
+            var documentType = DetermineDocumentTypeFromContent(processedHtml);
+    
+            courtCase.HasDecision = true;
+            courtCase.DecisionLink = courtCase.Link + "#html_decision";
+            courtCase.DecisionType = documentType;
+            courtCase.DecisionContent = processedHtml; // Сохраняем HTML!
+
+            logger.LogInformation("✅ Найдено HTML решение: {Type}, длина: {Length} символов", 
+                documentType, processedHtml.Length);
+            return true;
+        }
+        else
+        {
+            logger.LogInformation("HTML не прошел валидацию как решение");
+            return false;
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Ошибка при извлечении HTML решения");
+        return false;
+    }
+}
+    /// <summary>
+    /// Минимальная очистка HTML для безопасного хранения
+    /// </summary>
+    private string CleanHtmlForStorage(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        try
+        {
+            logger.LogDebug("Начинаем минимальную очистку HTML");
+        
+            // 1. Обрабатываем защищенные данные
+            html = ProcessProtectedData(html);
+        
+            // 2. Убираем комментарии
+            html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
+        
+            // 3. Убираем только опасные теги (script, style, iframe)
+            html = RemoveDangerousTags(html);
+        
+            // 4. Декодируем HTML сущности
+            html = System.Net.WebUtility.HtmlDecode(html);
+        
+            // 5. Нормализуем пробелы
+            html = Regex.Replace(html, @"\s+", " ");
+        
+            // 6. Убираем атрибуты событий (onclick, onload и т.д.)
+            html = RemoveEventAttributes(html);
+        
+            logger.LogDebug("Минимальная очистка завершена");
+            return html.Trim();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при минимальной очистке HTML");
+            return html; // Возвращаем исходный HTML в случае ошибки
+        }
+    }
+
+    /// <summary>
+    /// Убирает потенциально опасные теги
+    /// </summary>
+    private string RemoveDangerousTags(string html)
+    {
+        var dangerousTags = new[] { "script", "style", "iframe", "object", "embed", "link", "meta" };
+    
+        foreach (var tag in dangerousTags)
+        {
+            // Удаляем парные теги
+            html = Regex.Replace(html, 
+                $@"<{tag}[^>]*>.*?</{tag}>", 
+                "", 
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        
+            // Удаляем самозакрывающиеся теги
+            html = Regex.Replace(html, 
+                $@"<{tag}[^>]*/>", 
+                "", 
+                RegexOptions.IgnoreCase);
+        }
+    
+        return html;
+    }
+
+    /// <summary>
+    /// Убирает атрибуты событий
+    /// </summary>
+    private string RemoveEventAttributes(string html)
+    {
+        var eventAttributes = new[] { "onclick", "onload", "onerror", "onmouseover", "onmouseout", 
+            "onkeydown", "onkeyup", "onchange", "onsubmit" };
+    
+        foreach (var attr in eventAttributes)
+        {
+            html = Regex.Replace(html, $@"\s+{attr}\s*=\s*[""'][^""']*[""']", "", RegexOptions.IgnoreCase);
+            html = Regex.Replace(html, $@"\s+{attr}\s*=\s*[^>\s]*", "", RegexOptions.IgnoreCase);
+        }
+    
+        return html;
+    }
 
     /// <summary>
     /// Извлекает встроенное решение прямо из HTML страницы
@@ -103,6 +263,13 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 return true;
             }
 
+            // Пробуем новый метод с HTML
+            bool hasHtmlDecision = await ExtractDecisionWithHtml(page, courtCase);
+            if (hasHtmlDecision)
+            {
+                return true;
+            }
+
             return false;
         }
         catch (Exception ex)
@@ -118,26 +285,26 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Ищем чистое решение в HTML для дела {CaseNumber}", courtCase.CaseNumber);
 
-            // 1. Сначала пробуем извлечь с форматированием
-            bool extracted = await ExtractFormattedDecision(page, courtCase);
+            // 1. Сначала пробуем извлечь с HTML
+            bool extracted = await ExtractDecisionWithHtml(page, courtCase);
             if (extracted) return true;
-        
+    
             // 2. Метод из HTML-структуры
             extracted = await ExtractFromHtmlStructure(page, courtCase);
             if (extracted) return true;
-        
+    
             // 3. Метод из стандартной структуры
             extracted = await ExtractFromStandardStructure(page, courtCase);
             if (extracted) return true;
-        
-            // 4. Простой метод извлечения текста
-            extracted = await ExtractBySimpleTextExtraction(page, courtCase);
-            if (extracted) return true;
-        
-            // 5. Метод по ключевым словам
-            extracted = await ExtractByDecisionKeywords(page, courtCase);
-        
-            return extracted;
+    
+            // 4. Запасные варианты (можно закомментировать если не нужны)
+            // extracted = await ExtractBySimpleTextExtraction(page, courtCase);
+            // if (extracted) return true;
+    
+            // extracted = await ExtractByDecisionKeywords(page, courtCase);
+            // if (extracted) return true;
+    
+            return false;
         }
         catch (Exception ex)
         {
@@ -145,9 +312,11 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             return false;
         }
     }
-
     /// <summary>
     /// СПЕЦИАЛЬНЫЙ МЕТОД: Извлекает решение из HTML с тегами форматирования
+    /// </summary>
+    /// <summary>
+    /// Извлекает решение из HTML-структуры (сохраняем HTML)
     /// </summary>
     private async Task<bool> ExtractFromHtmlStructure(IPage page, CourtCase courtCase)
     {
@@ -157,7 +326,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
             // 1. Получаем весь HTML страницы
             var pageContent = await page.GetContentAsync();
-        
+    
             // 2. Ищем блок с решением
             int startIndex = FindDecisionStartInHtml(pageContent);
             if (startIndex == -1)
@@ -168,7 +337,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
             // 3. Вырезаем HTML от начала решения
             string htmlSolution = pageContent.Substring(startIndex);
-        
+    
             // 4. Ищем конец решения
             int endIndex = FindDecisionEndInHtml(htmlSolution);
             if (endIndex == -1)
@@ -181,28 +350,28 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             }
 
             htmlSolution = htmlSolution.Substring(0, endIndex);
-        
-            // 5. Извлекаем текст с сохранением структуры
-            string cleanText = ExtractTextWithStructure(htmlSolution);
-        
-            if (string.IsNullOrWhiteSpace(cleanText) || cleanText.Length < 500)
+    
+            // 5. Минимальная обработка HTML
+            string cleanHtml = CleanHtmlForStorage(htmlSolution);
+    
+            if (string.IsNullOrWhiteSpace(cleanHtml) || cleanHtml.Length < 500)
             {
-                logger.LogInformation("Извлеченный текст слишком короткий: {Length}", cleanText.Length);
+                logger.LogInformation("Извлеченный HTML слишком короткий: {Length}", cleanHtml.Length);
                 return false;
             }
 
             // 6. Проверяем, что это действительно решение
-            if (IsValidDecisionContent(cleanText))
+            if (IsValidDecisionContent(cleanHtml))
             {
-                var documentType = DetermineDocumentTypeFromContent(cleanText);
-        
+                var documentType = DetermineDocumentTypeFromContent(cleanHtml);
+    
                 courtCase.HasDecision = true;
                 courtCase.DecisionLink = courtCase.Link + "#html_structure";
                 courtCase.DecisionType = documentType;
-                courtCase.DecisionContent = cleanText;
+                courtCase.DecisionContent = cleanHtml; // Сохраняем HTML!
 
                 logger.LogInformation("✅ Найдено решение из HTML-структуры: {Type}, длина: {Length} символов", 
-                    documentType, cleanText.Length);
+                    documentType, cleanHtml.Length);
                 return true;
             }
 
@@ -1066,154 +1235,168 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     /// <summary>
     /// СПЕЦИАЛЬНАЯ ПРОВЕРКА: Ищем блоки MsoNormal с выравниванием по ширине
     /// </summary>
-    private async Task<bool> CheckMsoNormalStructure(IPage page, CourtCase courtCase)
+    /// <summary>
+/// СПЕЦИАЛЬНАЯ ПРОВЕРКА: Ищем блоки MsoNormal с выравниванием по ширине
+/// </summary>
+private async Task<bool> CheckMsoNormalStructure(IPage page, CourtCase courtCase)
+{
+    try
     {
-        try
+        // Ищем все параграфы с классом MsoNormal и выравниванием по ширине
+        var msoNormalElements = await page.QuerySelectorAllAsync(
+            "p.MsoNormal[style*='TEXT-ALIGN: justify'], " +
+            "p.MsoNormal[style*='text-align: justify'], " +
+            "p[class*='MsoNormal'][style*='justify']"
+        );
+
+        logger.LogInformation("Найдено элементов MsoNormal с выравниванием: {Count}", msoNormalElements.Length);
+
+        if (msoNormalElements.Length < 5)
         {
-            // Ищем все параграфы с классом MsoNormal и выравниванием по ширине
-            var msoNormalElements = await page.QuerySelectorAllAsync(
-                "p.MsoNormal[style*='TEXT-ALIGN: justify'], " +
-                "p.MsoNormal[style*='text-align: justify'], " +
-                "p[class*='MsoNormal'][style*='justify']"
-            );
-
-            logger.LogInformation("Найдено элементов MsoNormal с выравниванием: {Count}", msoNormalElements.Length);
-
-            if (msoNormalElements.Length < 5)
-            {
-                logger.LogInformation("Недостаточно элементов MsoNormal для признания решения: {Count}", msoNormalElements.Length);
-                return false;
-            }
-
-            // Извлекаем HTML всех элементов
-            var decisionTextParts = new List<string>();
-            foreach (var element in msoNormalElements.Take(20))
-            {
-                var outerHtml = await element.EvaluateFunctionAsync<string>("el => el.outerHTML");
-                if (!string.IsNullOrEmpty(outerHtml))
-                {
-                    decisionTextParts.Add(outerHtml);
-                }
-            }
-
-            if (decisionTextParts.Count < 3)
-            {
-                return false;
-            }
-
-            var fullHtml = string.Join("\n", decisionTextParts);
-            var cleanText = ExtractTextWithStructure(fullHtml);
-            
-            if (!IsValidDecisionContent(cleanText))
-            {
-                logger.LogInformation("Текст из MsoNormal не прошел валидацию как судебное решение");
-                return false;
-            }
-
-            var documentType = DetermineDocumentTypeFromContent(cleanText);
-            if (string.IsNullOrEmpty(documentType))
-            {
-                return false;
-            }
-
-            courtCase.HasDecision = true;
-            courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
-            courtCase.DecisionType = documentType;
-            courtCase.DecisionContent = cleanText;
-
-            logger.LogInformation("✅ Найдено валидное решение в MsoNormal структуре: {Type}", documentType);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при проверке MsoNormal структуры");
+            logger.LogInformation("Недостаточно элементов MsoNormal для признания решения: {Count}", msoNormalElements.Length);
             return false;
         }
-    }
 
+        // Извлекаем HTML всех элементов
+        var decisionHtmlParts = new List<string>();
+        foreach (var element in msoNormalElements.Take(20))
+        {
+            var outerHtml = await element.EvaluateFunctionAsync<string>("el => el.outerHTML");
+            if (!string.IsNullOrEmpty(outerHtml))
+            {
+                decisionHtmlParts.Add(outerHtml);
+            }
+        }
+
+        if (decisionHtmlParts.Count < 3)
+        {
+            return false;
+        }
+
+        var fullHtml = string.Join("\n", decisionHtmlParts);
+        var cleanHtml = CleanHtmlForStorage(fullHtml);
+        
+        if (!IsValidDecisionContent(cleanHtml))
+        {
+            logger.LogInformation("HTML из MsoNormal не прошел валидацию как судебное решение");
+            return false;
+        }
+
+        var documentType = DetermineDocumentTypeFromContent(cleanHtml);
+        if (string.IsNullOrEmpty(documentType))
+        {
+            return false;
+        }
+
+        courtCase.HasDecision = true;
+        courtCase.DecisionLink = courtCase.Link + "#mso_decision";
+        courtCase.DecisionType = documentType;
+        courtCase.DecisionContent = cleanHtml; // Сохраняем HTML!
+
+        logger.LogInformation("✅ Найдено валидное решение в MsoNormal структуре: {Type}", documentType);
+        return true;
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Ошибка при проверке MsoNormal структуры");
+        return false;
+    }
+}
     
     /// <summary>
     /// Проверяет стандартную структуру решения (h3 + blockquote)
     /// </summary>
-    private async Task<bool> CheckStandardDecisionStructure(IPage page, CourtCase courtCase)
+    /// <summary>
+/// Проверяет стандартную структуру решения (h3 + blockquote)
+/// </summary>
+private async Task<bool> CheckStandardDecisionStructure(IPage page, CourtCase courtCase)
+{
+    try
     {
-        try
+        var pageContent = await page.GetContentAsync();
+        
+        bool hasSolutionStructure = 
+            pageContent.Contains("<h3 class=\"text-center\">") && 
+            pageContent.Contains("<blockquote itemprop=\"text\">");
+
+        if (!hasSolutionStructure)
         {
-            var pageContent = await page.GetContentAsync();
-            
-            bool hasSolutionStructure = 
-                pageContent.Contains("<h3 class=\"text-center\">") && 
-                pageContent.Contains("<blockquote itemprop=\"text\">");
-
-            if (!hasSolutionStructure)
-            {
-                return false;
-            }
-
-            // Извлекаем заголовок
-            var headerMatch = Regex.Match(
-                pageContent, 
-                @"<h3 class=""text-center"">([^<]*)</h3>"
-            );
-            
-            if (!headerMatch.Success)
-            {
-                return false;
-            }
-
-            // Извлекаем текст решения из blockquote
-            var blockquoteMatch = Regex.Match(
-                pageContent,
-                @"<blockquote itemprop=""text"">(.*?)</blockquote>",
-                RegexOptions.Singleline
-            );
-            
-            if (!blockquoteMatch.Success)
-            {
-                return false;
-            }
-
-            var decisionText = ExtractTextWithStructure(blockquoteMatch.Groups[1].Value);
-            
-            if (!IsValidDecisionContent(decisionText))
-            {
-                return false;
-            }
-
-            var documentType = DetermineDocumentTypeFromContent(decisionText);
-            if (string.IsNullOrEmpty(documentType))
-            {
-                return false;
-            }
-
-            courtCase.HasDecision = true;
-            courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
-            courtCase.DecisionType = documentType;
-            courtCase.DecisionContent = decisionText;
-            
-            logger.LogInformation("✅ Найдено решение в стандартной структуре: {Type}", documentType);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при проверке стандартной структуры");
             return false;
         }
+
+        // Извлекаем заголовок
+        var headerMatch = Regex.Match(
+            pageContent, 
+            @"<h3 class=""text-center"">([^<]*)</h3>"
+        );
+        
+        if (!headerMatch.Success)
+        {
+            return false;
+        }
+
+        // Извлекаем текст решения из blockquote
+        var blockquoteMatch = Regex.Match(
+            pageContent,
+            @"<blockquote itemprop=""text"">(.*?)</blockquote>",
+            RegexOptions.Singleline
+        );
+        
+        if (!blockquoteMatch.Success)
+        {
+            return false;
+        }
+
+        var decisionHtml = blockquoteMatch.Groups[1].Value;
+        var cleanHtml = CleanHtmlForStorage(decisionHtml);
+        
+        if (!IsValidDecisionContent(cleanHtml))
+        {
+            return false;
+        }
+
+        var documentType = DetermineDocumentTypeFromContent(cleanHtml);
+        if (string.IsNullOrEmpty(documentType))
+        {
+            return false;
+        }
+
+        courtCase.HasDecision = true;
+        courtCase.DecisionLink = courtCase.Link + "#standard_structure";
+        courtCase.DecisionType = documentType;
+        courtCase.DecisionContent = cleanHtml; // Сохраняем HTML!
+        
+        logger.LogInformation("✅ Найдено решение в стандартной структуре: {Type}, длина: {Length}", 
+            documentType, cleanHtml.Length);
+        return true;
     }
-     
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Ошибка при проверке стандартной структуры");
+        return false;
+    }
+}
      
     /// <summary>
     /// ВАЛИДАЦИЯ содержимого решения - УЛУЧШЕННАЯ ВЕРСИЯ
     /// </summary>
     private bool IsValidDecisionContent(string content)
+{
+    if (string.IsNullOrWhiteSpace(content))
+        return false;
+
+    var cleanContent = content.ToLower();
+
+    // Проверяем, есть ли HTML теги (но не считаем опасные)
+    bool hasHtmlTags = content.Contains("<p") || 
+                       content.Contains("<div") || 
+                       content.Contains("<br") ||
+                       content.Contains("<span");
+
+    // Если это HTML, проверяем только основные признаки
+    if (hasHtmlTags)
     {
-        if (string.IsNullOrWhiteSpace(content))
-            return false;
-
-        var cleanContent = content.ToLower();
-
-        // ОБЯЗАТЕЛЬНЫЕ элементы судебного решения
-        var requiredElements = new[]
+        var htmlIndicators = new[]
         {
             "именем российской федерации",
             "решил:",
@@ -1222,103 +1405,133 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             "определила:",
             "постановил:",
             "постановила:",
-            "установил:",
-            "установила:"
-        };
-
-        // ДОПОЛНИТЕЛЬНЫЕ признаки (нужно минимум 3)
-        var additionalElements = new[]
-        {
             "суд",
             "судья",
-            "рассмотрев",
-            "заявление",
-            "иск",
-            "дело №",
-            "председательствующий",
-            "решение",
-            "определение",
-            "постановление",
-            "удовлетворить",
-            "отказать",
-            "истец",
-            "ответчик"
+            "дело №"
         };
-
-        // Должен содержать хотя бы один ОБЯЗАТЕЛЬНЫЙ элемент
-        bool hasRequired = requiredElements.Any(element => cleanContent.Contains(element));
         
-        // И хотя бы три ДОПОЛНИТЕЛЬНЫХ элемента
-        int additionalCount = additionalElements.Count(element => cleanContent.Contains(element));
-
-        bool isValid = hasRequired && additionalCount >= 3;
-
-        logger.LogDebug("Валидация контента: Required={HasRequired}, Additional={AdditionalCount}, Valid={IsValid}", 
-            hasRequired, additionalCount, isValid);
-
-        return isValid;
+        int indicatorsCount = htmlIndicators.Count(indicator => cleanContent.Contains(indicator));
+        bool isVal = indicatorsCount >= 3;
+        
+        logger.LogDebug("Валидация HTML контента: Индикаторов={IndicatorsCount}, Valid={IsValid}", 
+            indicatorsCount, isVal);
+        
+        return isVal;
     }
-     
+    
+    // Для чистого текста используем старую логику
+    var requiredElements = new[]
+    {
+        "именем российской федерации",
+        "решил:",
+        "решила:",
+        "определил:",
+        "определила:",
+        "постановил:",
+        "постановила:",
+        "установил:",
+        "установила:"
+    };
+
+    var additionalElements = new[]
+    {
+        "суд",
+        "судья",
+        "рассмотрев",
+        "заявление",
+        "иск",
+        "дело №",
+        "председательствующий",
+        "решение",
+        "определение",
+        "постановление",
+        "удовлетворить",
+        "отказать",
+        "истец",
+        "ответчик"
+    };
+
+    bool hasRequired = requiredElements.Any(element => cleanContent.Contains(element));
+    int additionalCount = additionalElements.Count(element => cleanContent.Contains(element));
+
+    bool isValid = hasRequired && additionalCount >= 3;
+
+    logger.LogDebug("Валидация текстового контента: Required={HasRequired}, Additional={AdditionalCount}, Valid={IsValid}", 
+        hasRequired, additionalCount, isValid);
+
+    return isValid;
+}
 
     /// <summary>
     /// Проверяет решение по содержимому всей страницы
     /// </summary>
-    private async Task<bool> CheckDecisionByContent(IPage page, CourtCase courtCase)
+    /// <summary>
+/// Проверяет решение по содержимому всей страницы
+/// </summary>
+private async Task<bool> CheckDecisionByContent(IPage page, CourtCase courtCase)
+{
+    try
     {
-        try
+        var pageContent = await page.GetContentAsync();
+        
+        // Ищем явные признаки решения в тексте
+        var cleanContent = pageContent.ToLower();
+        
+        bool hasStrongIndicators = 
+            cleanContent.Contains("р е ш е н и е") ||
+            cleanContent.Contains("о п р е д е л е н и е") ||
+            cleanContent.Contains("именем российской федерации");
+
+        if (!hasStrongIndicators)
         {
-            var pageContent = await page.GetContentAsync();
-            
-            // Ищем явные признаки решения в тексте
-            var cleanContent = pageContent.ToLower();
-            
-            bool hasStrongIndicators = 
-                cleanContent.Contains("р е ш е н и е") ||
-                cleanContent.Contains("о п р е д е л е н и е") ||
-                cleanContent.Contains("именем российской федерации");
-
-            if (!hasStrongIndicators)
-            {
-                return false;
-            }
-
-            // Извлекаем основной текст страницы
-            var bodyText = await page.EvaluateFunctionAsync<string>(@"
-                () => {
-                    const scripts = document.querySelectorAll('script, style, nav, header, footer');
-                    scripts.forEach(el => el.remove());
-                    return document.body.innerHTML;
-                }
-            ");
-
-            var cleanText = ExtractTextWithStructure(bodyText);
-            
-            if (!IsValidDecisionContent(cleanText))
-            {
-                return false;
-            }
-
-            var documentType = DetermineDocumentTypeFromContent(cleanText);
-            if (string.IsNullOrEmpty(documentType))
-            {
-                return false;
-            }
-
-            courtCase.HasDecision = true;
-            courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
-            courtCase.DecisionType = documentType;
-            courtCase.DecisionContent = cleanText;
-            
-            logger.LogInformation("✅ Найдено решение по содержимому страницы: {Type}", documentType);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при проверке по содержимому страницы");
             return false;
         }
-    }
 
+        // Находим начало решения в HTML
+        int startIndex = FindDecisionStartInHtml(pageContent);
+        if (startIndex == -1)
+        {
+            return false;
+        }
+
+        // Вырезаем HTML решение
+        string htmlSolution = pageContent.Substring(startIndex);
+        int endIndex = FindDecisionEndInHtml(htmlSolution);
+        
+        if (endIndex == -1)
+        {
+            endIndex = Math.Min(50000, htmlSolution.Length);
+        }
+
+        htmlSolution = htmlSolution.Substring(0, endIndex);
+        var cleanHtml = CleanHtmlForStorage(htmlSolution);
+        
+        if (!IsValidDecisionContent(cleanHtml))
+        {
+            return false;
+        }
+
+        var documentType = DetermineDocumentTypeFromContent(cleanHtml);
+        if (string.IsNullOrEmpty(documentType))
+        {
+            return false;
+        }
+
+        courtCase.HasDecision = true;
+        courtCase.DecisionLink = courtCase.Link + "#content_decision";
+        courtCase.DecisionType = documentType;
+        courtCase.DecisionContent = cleanHtml;
+        
+        logger.LogInformation("✅ Найдено решение по содержимому страницы: {Type}, длина: {Length}", 
+            documentType, cleanHtml.Length);
+        return true;
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Ошибка при проверке по содержимому страницы");
+        return false;
+    }
+}
     /// <summary>
     /// Проверяет ссылки на файлы решений
     /// </summary>
