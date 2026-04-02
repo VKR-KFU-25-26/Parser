@@ -48,14 +48,14 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 bool found = await method(page, courtCase);
                 if (found)
                 {
-                    logger.LogInformation("✅ Решение найдено методом: {MethodName}", 
+                    logger.LogInformation("Решение найдено методом: {MethodName}", 
                         method.Method.Name);
                     return;
                 }
             }
 
             // 5. Если ничего не найдено
-            logger.LogInformation("❌ Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
+            logger.LogInformation("Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
         }
         catch (Exception ex)
         {
@@ -126,6 +126,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     /// <summary>
     /// Метод через XPath
     /// </summary>
+    [Obsolete("Obsolete")]
     private async Task<bool> ExtractFromXPath(IPage page, CourtCase courtCase)
     {
         try
@@ -301,7 +302,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 courtCase.DecisionType = documentType;
                 courtCase.DecisionContent = decisionText;
                 
-                logger.LogInformation("✅ Найдено решение простым методом: {Type}, длина: {Length}", 
+                logger.LogInformation("Найдено решение простым методом: {Type}, длина: {Length}", 
                     documentType, decisionText.Length);
                 return true;
             }
@@ -351,7 +352,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.DecisionType = documentType;
             courtCase.DecisionContent = cleanHtml;
             
-            logger.LogInformation("✅ Найдено решение методом {MethodName}: {Type}, длина: {Length}", 
+            logger.LogInformation("Найдено решение методом {MethodName}: {Type}, длина: {Length}", 
                 methodName, documentType, cleanHtml.Length);
             
             return true;
@@ -599,7 +600,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                         courtCase.DecisionType = documentType;
                         courtCase.DecisionContent = string.Empty;
                     
-                        logger.LogInformation("✅ Найдена ссылка на файл решения: {Type} - {Link}", 
+                        logger.LogInformation("Найдена ссылка на файл решения: {Type} - {Link}", 
                             documentType, fullLink);
                     
                         return true;

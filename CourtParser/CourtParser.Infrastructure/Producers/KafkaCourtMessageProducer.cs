@@ -184,11 +184,11 @@ public class KafkaCourtMessageProducer : IKafkaProducer
         try
         {
             await ProduceAsync(topic, mockMessage);
-            _logger.LogInformation("✅ Успешно отправлено тестовое сообщение в топик {Topic}", topic);
+            _logger.LogInformation("Успешно отправлено тестовое сообщение в топик {Topic}", topic);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Ошибка отправки тестового сообщения в топик {Topic}", topic);
+            _logger.LogError(ex, "Ошибка отправки тестового сообщения в топик {Topic}", topic);
             throw;
         }
     }

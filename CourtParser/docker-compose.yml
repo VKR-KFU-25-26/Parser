@@ -29,6 +29,12 @@ services:
       - kafka_data:/var/lib/kafka/data
     networks:
       - blockchain_network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -57,6 +63,11 @@ services:
       - pg_data:/var/lib/postgresql/data
     networks:
       - blockchain_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   jurisseeker_postgres:
     image: postgres:16
@@ -77,7 +88,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Используем образы из Docker Hub вместо docker.elastic.co
   elasticsearch:
     image: elasticsearch:8.11.0
     container_name: elasticsearch
@@ -119,6 +129,57 @@ services:
         condition: service_healthy
     networks:
       - blockchain_network
+
+  courtparser-worker:
+    build:
+      context: C:/VKR.Back/CourtParser
+      dockerfile: C:/VKR.Back/CourtParser/CourtParser.Worker/Dockerfile
+    container_name: courtparser-worker
+    ports:
+      - "5002:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__DefaultConnection=Host=hangfire_postgres;Port=5432;Database=hangfiredb;Username=postgres;Password=postgres
+      - Kafka__BootstrapServers=kafka:29092
+    depends_on:
+      hangfire_postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - blockchain_network
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+  jurisseeker-web:
+    build:
+      context: C:/VKR.Back.Main/JurisSeeker
+      dockerfile: C:/VKR.Back.Main/JurisSeeker/JurisSeeker.Web/Dockerfile
+    container_name: jurisseeker-web
+    ports:
+      - "5001:8070"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8070
+      - Kestrel__Endpoints__Http__Url=http://+:8070 
+      - ConnectionStrings__DefaultConnection=Host=jurisseeker_postgres;Port=5432;Database=jurisseeker;Username=postgres;Password=postgres
+      - Kafka__BootstrapServers=kafka:29092
+    depends_on:
+      jurisseeker_postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      courtparser-worker:
+        condition: service_started
+    networks:
+      - blockchain_network
+    restart: unless-stopped
+
 
 volumes:
   kafka_data:

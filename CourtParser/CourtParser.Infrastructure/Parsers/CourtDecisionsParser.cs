@@ -12,13 +12,16 @@ public class CourtDecisionsParser(
     SearchResultsParserService searchParser,
     DecisionExtractionService decisionService) : IParser
 {
-    private const int MaxPages = 1;
+    private const int MaxPages = 2;
 
+
+    [Obsolete("Obsolete")]
     public async Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int page)
     {
         return await FillFormAndSearchCasesAsync(regions, CancellationToken.None);
     }
     
+    [Obsolete("Obsolete")]
     private async Task<List<CourtCase>> FillFormAndSearchCasesAsync(
         List<string>? regions = null, 
         CancellationToken cancellationToken = default)
@@ -27,23 +30,31 @@ public class CourtDecisionsParser(
         var response = await httpClient.GetAsync("https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai/", cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            // Логируем проблему и пропускаем регион
             logger.LogWarning("Сайт недоступен, пропускаем парсинг");
             return [];
         }
-        await new BrowserFetcher().DownloadAsync();
+        
+        // await new BrowserFetcher().DownloadAsync();
 
         var launchOptions = new LaunchOptions
         {
-            Headless = false,
-            Timeout = 120000, // Увеличить общий таймаут
+            Headless = true, // true для Docker
+            Timeout = 120000,
+            ExecutablePath = "/usr/bin/chromium",
             Args =
             [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-accelerated-2d-canvas",
-                "--disable-gpu"
+                "--disable-gpu",
+                "--disable-gpu-sandbox",
+                "--disable-software-rasterizer",
+                "--disable-features=VizDisplayCompositor",
+                "--disable-blink-features=AutomationControlled", 
+                "--disable-web-security", 
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--single-process" 
             ]
         };
 
@@ -70,7 +81,6 @@ public class CourtDecisionsParser(
             // Заполнение формы
             await FillSearchForm(page, cancellationToken);
         
-            // Ждем стабилизации формы
             await Task.Delay(2000, cancellationToken);
 
             // Определяем федеральный округ и регионы для контекста парсера
@@ -93,7 +103,6 @@ public class CourtDecisionsParser(
                 logger.LogInformation("Начинаем выбор регионов: {Regions}", string.Join(", ", regions));
                 await regionService.SelectRegionsAsync(page, regions);
             
-                // ВАЖНО: Ждем стабилизации после выбора регионов
                 await Task.Delay(3000, cancellationToken);
             
                 // Проверяем, что форма все еще доступна
@@ -115,7 +124,7 @@ public class CourtDecisionsParser(
                 await ParseAdditionalPagesAsync(page, allCases, cancellationToken);
             }
 
-            // КРИТИЧЕСКИ ВАЖНО: проверка решений
+            // проверка решений
             if (allCases.Count > 0)
             {
                 await CheckDecisionsForCases(page, allCases, cancellationToken);
@@ -135,7 +144,11 @@ public class CourtDecisionsParser(
             return allCases;
         }
     }
-    // Новый метод для парсинга регионов и определения контекста
+    
+    /// <summary>
+    /// Метод для парсинга регионов и определения контекста
+    /// </summary>
+    /// <param name="regions">Регионы</param>
     private (string federalDistrict, List<string> regions) ParseRegionsForContext(List<string>? regions)
     {
         if (regions == null || !regions.Any())
@@ -165,15 +178,15 @@ public class CourtDecisionsParser(
         var actualRegions = regions.Where(r => !federalDistricts.Contains(r)).ToList();
 
         // Если передали только федеральный округ без конкретных регионов
-        if (!actualRegions.Any() && federalDistricts.Contains(federalDistrict))
+        if (actualRegions.Count == 0 && federalDistricts.Contains(federalDistrict))
         {
             // Для случая когда выбрали весь федеральный округ
-            actualRegions = new List<string> { federalDistrict };
+            actualRegions = [federalDistrict];
         }
-        else if (!actualRegions.Any())
+        else if (actualRegions.Count == 0)
         {
             // Дефолтный случай
-            actualRegions = new List<string> { "Республика Татарстан" };
+            actualRegions = ["Республика Татарстан"];
         }
 
         return (federalDistrict, actualRegions);
@@ -187,18 +200,18 @@ public class CourtDecisionsParser(
             logger.LogWarning("Выбор регионов недоступен, продолжаем без фильтрации по регионам");
         }
     
-        // 1. Выбираем тип дела: Первая инстанция (гражданские и административные дела)
+        // Выбираем тип дела: Первая инстанция (гражданские и административные дела)
         await page.SelectAsync("#extendedSearch_case_type", "gr_first");
         logger.LogInformation("Выбран тип дела: Первая инстанция (гражданские и административные дела)");
 
-        // Ждем загрузки категорий
+        // Загрузки категорий
         await page.WaitForFunctionAsync(
             "() => document.querySelector('#extendedSearch_sub_category_1') !== null",
             new WaitForFunctionOptions { Timeout = 15000 }
         );
         await Task.Delay(2000, cancellationToken);
 
-        // 2. Выбираем категорию: Имущественные споры
+        // Выбираем категорию: Имущественные споры
         await page.SelectAsync("#extendedSearch_sub_category_1", "46");
         logger.LogInformation("Выбрана категория: Имущественные споры");
 
@@ -209,9 +222,9 @@ public class CourtDecisionsParser(
         );
         await Task.Delay(2000, cancellationToken);
 
-        // 3. Выбираем подкатегорию: Иски о взыскании сумм по договору займа, кредитному договору
+        // Выбираем подкатегорию: Иски о взыскании сумм по договору займа, кредитному договору
         await page.SelectAsync("#extendedSearch_sub_category_2", "53");
-        logger.LogInformation("✅ Выбрана подкатегория: Иски о взыскании сумм по договору займа, кредитному договору");
+        logger.LogInformation("Выбрана подкатегория: Иски о взыскании сумм по договору займа, кредитному договору");
     
         await Task.Delay(2000, cancellationToken);
     }
@@ -222,24 +235,22 @@ public class CourtDecisionsParser(
         {
             logger.LogInformation("Нажимаем кнопку поиска...");
         
-            // 1. Ждем загрузки кнопки
+            // Загрузки кнопки
             await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
             { 
                 Timeout = 10000,
                 Visible = true 
             });
         
-            // 2. Даем время для стабилизации
             await Task.Delay(2000, cancellationToken);
         
-            // 3. Используем простой клик без ожидания навигации
+            // Используем простой клик без ожидания навигации
             await page.EvaluateExpressionAsync(@"
-            document.querySelector('#extendedSearch_search').click();
-        ");
+            document.querySelector('#extendedSearch_search').click();");
         
             logger.LogInformation("Кнопка поиска нажата, ждем результатов...");
         
-            // 4. Ждем загрузки результатов с увеличенным таймаутом
+            // Ждем загрузки результатов с увеличенным таймаутом
             try
             {
                 await page.WaitForSelectorAsync("table.table-bordered", new WaitForSelectorOptions 
@@ -258,7 +269,6 @@ public class CourtDecisionsParser(
                 });
             }
         
-            // 5. Даем время для полной загрузки
             await Task.Delay(3000, cancellationToken);
         
             logger.LogInformation("Результаты поиска загружены");
@@ -269,6 +279,7 @@ public class CourtDecisionsParser(
             throw;
         }
     }
+    [Obsolete("Obsolete")]
     private async Task CheckDecisionsForCases(IPage page, List<CourtCase> cases, CancellationToken cancellationToken)
     {
         logger.LogInformation("Начинаем проверку решений для {Count} дел", cases.Count);
@@ -317,7 +328,7 @@ public class CourtDecisionsParser(
 
                 logger.LogInformation("Переходим на страницу {Page}...", currentPage);
 
-                // Используем WaitForNavigation для перехода на следующую страницу
+                // для перехода на следующую страницу
                 var navigationTask = page.WaitForNavigationAsync(new NavigationOptions
                 {
                     WaitUntil = [WaitUntilNavigation.Networkidle2],
@@ -329,7 +340,6 @@ public class CourtDecisionsParser(
                 // Ждем загрузки новой страницы
                 await navigationTask;
 
-                // Ждем немного для полной загрузки
                 await Task.Delay(3000, cancellationToken);
 
                 // Парсим текущую страницу
@@ -341,11 +351,10 @@ public class CourtDecisionsParser(
                     break;
                 }
 
-                // Просто добавляем все дела без проверки дубликатов
+                // Просто добавляем все дела
                 allCases.AddRange(pageCases);
                 logger.LogInformation("Спарсено дел на странице {Page}: {Count}", currentPage, pageCases.Count);
 
-                // Задержка между страницами чтобы не нагружать сервер
                 await Task.Delay(2000, cancellationToken);
             }
 
@@ -359,11 +368,6 @@ public class CourtDecisionsParser(
         {
             logger.LogError(ex, "Ошибка при парсинге дополнительных страниц");
         }
-    }
-    
-    public Task<List<CourtCase>> ParseCasesAsync(string keyword, int page)
-    {
-        throw new NotImplementedException();
     }
     
     private async Task<bool> CheckRegionSelectionAvailability(IPage page)

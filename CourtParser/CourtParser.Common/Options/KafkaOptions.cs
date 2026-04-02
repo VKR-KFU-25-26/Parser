@@ -2,7 +2,7 @@ namespace CourtParser.Common.Options;
 
 public class KafkaOptions
 {
-    public string BootstrapServers { get; set; } = "localhost:9092";
+    public string BootstrapServers { get; set; } = "kafka:29092";
     public string Topic { get; set; } = "court-cases";
     public string ClientId { get; set; } = "court-parser";
     public int MessageSendMaxRetries { get; set; } = 3;

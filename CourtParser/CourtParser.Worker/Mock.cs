@@ -23,7 +23,7 @@ public class Mock : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("🚀 Kafka Test Data Producer Service started");
+        _logger.LogInformation("Kafka Test Data Producer Service started");
 
         // Ждем немного перед началом работы
         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
@@ -49,16 +49,16 @@ public class Mock : BackgroundService
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("🛑 Kafka Test Data Producer Service stopped");
+                _logger.LogInformation("Kafka Test Data Producer Service stopped");
                 break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error in Kafka Test Data Producer Service");
+                _logger.LogError(ex, "Error in Kafka Test Data Producer Service");
                 await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); // Ждем перед повторной попыткой
             }
         }
 
-        _logger.LogInformation("🔚 Kafka Test Data Producer Service finished");
+        _logger.LogInformation("Kafka Test Data Producer Service finished");
     }
 }

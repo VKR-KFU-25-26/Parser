@@ -1,158 +1,116 @@
 using CourtParser.Common.Interfaces;
 using CourtParser.Models.Regions;
 using Hangfire;
+using Hangfire.Storage;
 
 namespace CourtParser.Infrastructure.Hangfire.Initializer;
 
 public static class HangfireRegionInitializer
 {
+    private static volatile bool _initialized;
+    private static readonly object Lock = new();
+    
     [Obsolete("Obsolete")]
     public static void ScheduleRegionJobs()
     {
-        var allRegions = RussianRegions.GetAllRegions();
-        
-        foreach (var region in allRegions)
+        // Первая проверка без блокировки
+        lock (Lock)
         {
-            var jobId = $"region_job_{region.Replace(" ", "_")}";
+            if (_initialized)
+            {
+                Console.WriteLine("Hangfire задачи уже инициализированы, пропускаем...");
+                return;
+            }
+        }
+
+        lock (Lock)
+        {
+            // Вторая проверка внутри блокировки
+            if (_initialized)
+            {
+                Console.WriteLine("Hangfire задачи уже инициализированы (второй поток), пропускаем...");
+                return;
+            }
             
-            BackgroundJob.Enqueue<IRegionJobService>(
-                x => x.ProcessRegionAsync(region)
-            );
+            Console.WriteLine("Регистрация Hangfire задач...");
             
+            // Очищаем старые задачи перед добавлением новых
+            CleanupOldJobs();
+            
+            var allRegions = RussianRegions.GetAllRegions();
+            
+            foreach (var region in allRegions)
+            {
+                BackgroundJob.Enqueue<IRegionJobService>(
+                    x => x.ProcessRegionAsync(region)
+                );
+            }
+            
+            // Используем volatile запись
+            _initialized = true;
+            
+            Console.WriteLine($"Зарегистрировано {allRegions.Count} задач");
+            Console.WriteLine($"Initialized at {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         }
     }
     
-    // [Obsolete("Obsolete")]
-    // public static void ScheduleRegionJobs()
-    // {
-    //     Console.WriteLine("🚀 Инициализация циклического парсинга регионов");
-    //     
-    //     var allRegions = RussianRegions.GetAllRegions();
-    //     
-    //     // Удаляем старые задачи, если есть
-    //     CleanupOldCycleJobs();
-    //     
-    //     // Запускаем первый цикл
-    //     StartInfiniteCycle(allRegions);
-    // }
-    //
-    // [Obsolete("Obsolete")]
-    // private static void CleanupOldCycleJobs()
-    // {
-    //     using var connection = JobStorage.Current.GetConnection();
-    //     var recurringJobs = connection.GetRecurringJobs();
-    //     
-    //     // Удаляем все задачи, связанные с циклами регионов
-    //     foreach (var job in recurringJobs)
-    //     {
-    //         if (job.Id.Contains("region_cycle_") || job.Id.Contains("region_next_cycle"))
-    //         {
-    //             RecurringJob.RemoveIfExists(job.Id);
-    //             Console.WriteLine($"🗑️ Удалена старая задача: {job.Id}");
-    //         }
-    //     }
-    // }
-    //
-    // [Obsolete("Obsolete")]
-    // private static void StartInfiniteCycle(List<string> regions)
-    // {
-    //     Console.WriteLine($"📋 Всего регионов: {regions.Count}");
-    //     
-    //     // Запускаем первый регион сразу
-    //     BackgroundJob.Enqueue<IRegionJobService>(
-    //         x => x.ProcessRegionAsync(regions[0])
-    //     );
-    //     
-    //     Console.WriteLine($"✅ Первый регион '{regions[0]}' запланирован на выполнение");
-    //     
-    //     // Создаем цепочку для первого цикла
-    //     CreateRegionChain(regions, 0, null);
-    // }
-    //
-    // [Obsolete("Obsolete")]
-    // private static void CreateRegionChain(List<string> regions, int cycleNumber, string previousJobId = null)
-    // {
-    //     string currentJobId = null;
-    //     
-    //     for (int i = 0; i < regions.Count; i++)
-    //     {
-    //         var region = regions[i];
-    //         
-    //         if (i == 0 && previousJobId == null)
-    //         {
-    //             // Первый регион в первом цикле уже запущен
-    //             currentJobId = null;
-    //             continue;
-    //         }
-    //         else if (i == 0 && previousJobId != null)
-    //         {
-    //             // Первый регион в следующем цикле - через сутки после последнего
-    //             currentJobId = BackgroundJob.Schedule<IRegionJobService>(
-    //                 x => x.ProcessRegionAsync(region),
-    //                 TimeSpan.FromHours(24)
-    //             );
-    //         }
-    //         else if (previousJobId != null)
-    //         {
-    //             // Регионы после первого - с задержкой от предыдущего
-    //             currentJobId = BackgroundJob.ContinueJobWith<IRegionJobService>(
-    //                 previousJobId,
-    //                 x => x.ProcessRegionAsync(region),
-    //                 JobContinuationOptions.OnlyOnSucceededState
-    //             );
-    //         }
-    //         else
-    //         {
-    //             // Для первого цикла используем Schedule с задержкой
-    //             var delayMinutes = i * 30;
-    //             currentJobId = BackgroundJob.Schedule<IRegionJobService>(
-    //                 x => x.ProcessRegionAsync(region),
-    //                 TimeSpan.FromMinutes(delayMinutes)
-    //             );
-    //         }
-    //         
-    //         Console.WriteLine($"📅 Запланирован регион '{region}' (Цикл {cycleNumber + 1}, позиция {i + 1})");
-    //         
-    //         previousJobId = currentJobId;
-    //     }
-    //     
-    //     // После планирования всех регионов в цикле, планируем следующий цикл
-    //     if (!string.IsNullOrEmpty(currentJobId))
-    //     {
-    //         ScheduleNextCycle(regions, cycleNumber + 1, currentJobId);
-    //     }
-    // }
-    //
-    // [Obsolete("Obsolete")]
-    // private static void ScheduleNextCycle(List<string> regions, int nextCycleNumber, string lastJobId)
-    // {
-    //     Console.WriteLine($"\n🔄 Планирование следующего цикла #{nextCycleNumber + 1}");
-    //     
-    //     // Создаем новую задачу для следующего цикла через сутки
-    //     BackgroundJob.ContinueJobWith(
-    //         lastJobId,
-    //         () => ScheduleNextCycleJob(regions, nextCycleNumber),
-    //         JobContinuationOptions.OnlyOnSucceededState
-    //     );
-    //     
-    //     var nextCycleTime = DateTime.Now.AddHours(24).AddMinutes(regions.Count * 30);
-    //     Console.WriteLine($"⏱️  Следующий цикл запланирован на: {nextCycleTime:dd.MM.yyyy HH:mm}");
-    // }
-    //
-    // [Obsolete("Obsolete")]
-    // public static void ScheduleNextCycleJob(List<string> regions, int cycleNumber)
-    // {
-    //     // Этот метод вызывается Hangfire и должен быть public
-    //     Console.WriteLine($"\n🔄 Запуск цикла #{cycleNumber + 1}");
-    //     
-    //     // Запускаем первый регион нового цикла
-    //     var firstJobId = BackgroundJob.Enqueue<IRegionJobService>(
-    //         x => x.ProcessRegionAsync(regions[0])
-    //     );
-    //     
-    //     Console.WriteLine($"✅ Первый регион '{regions[0]}' запланирован на выполнение");
-    //     
-    //     // Создаем цепочку для нового цикла
-    //     CreateRegionChain(regions, cycleNumber, firstJobId);
-    // }
+    [Obsolete("Obsolete")]
+    private static void CleanupOldJobs()
+    {
+        try
+        {
+            using var connection = JobStorage.Current.GetConnection();
+            
+            // Очищаем все enqueued задачи для IRegionJobService
+            var monitoringApi = JobStorage.Current.GetMonitoringApi();
+            var queues = monitoringApi.Queues();
+            
+            foreach (var queue in queues)
+            {
+                var enqueuedJobs = monitoringApi.EnqueuedJobs(queue.Name, 0, (int)queue.Length);
+                foreach (var job in enqueuedJobs)
+                {
+                    if (job.Value.Job.Type == typeof(IRegionJobService))
+                    {
+                        BackgroundJob.Delete(job.Key);
+                    }
+                }
+            }
+            
+            // Очищаем recurring задачи
+            var recurringJobs = connection.GetRecurringJobs();
+            foreach (var job in recurringJobs)
+            {
+                if (job.Id.Contains("region") || job.Job?.Type == typeof(IRegionJobService))
+                {
+                    RecurringJob.RemoveIfExists(job.Id);
+                }
+            }
+            
+            // Очищаем scheduled задачи
+            var scheduledJobs = monitoringApi.ScheduledJobs(0, 1000);
+            foreach (var job in scheduledJobs)
+            {
+                if (job.Value.Job.Type == typeof(IRegionJobService))
+                {
+                    BackgroundJob.Delete(job.Key);
+                }
+            }
+            
+            // Очищаем processing задачи
+            var processingJobs = monitoringApi.ProcessingJobs(0, 1000);
+            foreach (var job in processingJobs)
+            {
+                if (job.Value.Job.Type == typeof(IRegionJobService))
+                {
+                    BackgroundJob.Delete(job.Key);
+                }
+            }
+            
+        }
+        catch (Exception)
+        {
+            // Продолжаем выполнение, даже если очистка не удалась
+        }
+    }
 }
