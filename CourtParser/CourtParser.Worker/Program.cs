@@ -1,6 +1,9 @@
 using System.Text;
+using CourtParser.Common.Interfaces;
 using CourtParser.Infrastructure;
 using CourtParser.Infrastructure.Hangfire.Initializer;
+using CourtParser.Infrastructure.Hangfire.Services;
+using CourtParser.Worker;
 using Hangfire;
 using Hangfire.Dashboard.BasicAuthorization;
 using Hangfire.PostgreSql;
@@ -10,7 +13,7 @@ Console.InputEncoding = Encoding.UTF8;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//builder.Services.AddHostedService<Mock>();
+builder.Services.AddHostedService<Mock>();
 builder.Services.AddHangfire(config =>
 {
 #pragma warning disable CS0618 // Type or member is obsolete
@@ -19,7 +22,7 @@ builder.Services.AddHangfire(config =>
 });
 builder.Services.AddHangfireServer();
 
-//builder.Services.AddScoped<IRegionJobService, RegionJobService>();
+builder.Services.AddScoped<IRegionJobService, RegionJobService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddControllers();
 

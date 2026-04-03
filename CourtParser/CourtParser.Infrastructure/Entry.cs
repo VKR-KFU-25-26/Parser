@@ -18,12 +18,12 @@ public static class Entry
 {
     public static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        // services.AddHttpClient<IParser, SudactParser>(_ =>
-        // {
-        //     // client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        //     // client.DefaultRequestHeaders.Add("Accept", "application/json, text/html, */*");
-        //     // client.DefaultRequestHeaders.Add("Accept-Charset", "utf-8, windows-1251;q=0.7");
-        // });
+        services.AddHttpClient<IParser, SudactParser>(_ =>
+        {
+            // client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            // client.DefaultRequestHeaders.Add("Accept", "application/json, text/html, */*");
+            // client.DefaultRequestHeaders.Add("Accept-Charset", "utf-8, windows-1251;q=0.7");
+        });
 
         services.Configure<HttpClientOptions>(configuration.GetSection("HttpClientOptions"));
         
