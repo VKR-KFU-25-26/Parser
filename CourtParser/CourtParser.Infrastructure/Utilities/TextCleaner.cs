@@ -2,6 +2,9 @@ using System.Text.RegularExpressions;
 
 namespace CourtParser.Infrastructure.Utilities;
 
+/// <summary>
+/// Класс для очистки текста
+/// </summary>
 public static class TextCleaner
 {
     public static string CleanText(string text)

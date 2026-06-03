@@ -9,6 +9,9 @@ using Microsoft.Extensions.Options;
 
 namespace CourtParser.Infrastructure.Producers;
 
+/// <summary>
+/// Продюсер сообщений
+/// </summary>
 public class KafkaCourtMessageProducer : IKafkaProducer
 {
     private readonly IProducer<Null, string> _producer;

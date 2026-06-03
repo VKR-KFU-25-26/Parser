@@ -9,6 +9,5 @@ public interface IRegionJobService
     /// Основной пайплайн
     /// </summary>
     /// <param name="regionName"></param>
-    /// <returns></returns>
     Task ProcessRegionAsync(string regionName);
 }

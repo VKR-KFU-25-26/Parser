@@ -11,6 +11,9 @@ using Microsoft.Extensions.Options;
 
 namespace CourtParser.Infrastructure.Hangfire.Services;
 
+/// <summary>
+/// Основной пайплайн обработки задач парсера
+/// </summary>
 public class RegionJobService : IRegionJobService
 {
     private readonly IServiceProvider _serviceProvider;
@@ -101,7 +104,18 @@ public class RegionJobService : IRegionJobService
             CaseMovements = model.CaseMovements
         };
     }
+    
+    /// <summary>
+    /// Обрезает текст до указанной длины и добавляет многоточие
+    /// </summary>
+    private string TruncateText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+            return text;
 
+        return text.Substring(0, maxLength - 3) + "...";
+    }
+    
     private void PrintRegionResult(List<CourtCaseMessage> messages, string region)
     {
         if (messages.Count == 0)
@@ -124,7 +138,6 @@ public class RegionJobService : IRegionJobService
         Console.WriteLine($"   • Внешних документов: {externalDecisions}");
         Console.WriteLine();
 
-        // Выводим детальную информацию по каждому делу
         for (var i = 0; i < messages.Count; i++)
         {
             var message = messages[i];
@@ -171,7 +184,6 @@ public class RegionJobService : IRegionJobService
             }
         }
 
-        // Итоговая статистика
         Console.WriteLine($" ИТОГ по региону {region}:");
         Console.WriteLine($"   Дела с решениями: {casesWithDecisions}/{messages.Count}");
 
@@ -182,17 +194,5 @@ public class RegionJobService : IRegionJobService
         }
 
         Console.WriteLine("".PadRight(70, '═'));
-    }
-
-    
-    /// <summary>
-    /// Обрезает текст до указанной длины и добавляет многоточие
-    /// </summary>
-    private string TruncateText(string text, int maxLength)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
-            return text;
-
-        return text.Substring(0, maxLength - 3) + "...";
     }
 }

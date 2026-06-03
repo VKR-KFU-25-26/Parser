@@ -5,6 +5,9 @@ using Hangfire.Storage;
 
 namespace CourtParser.Infrastructure.Hangfire.Initializer;
 
+/// <summary>
+/// Класс, для инициализации воркера для запуска задач
+/// </summary>
 public static class HangfireRegionInitializer
 {
     private static volatile bool _initialized;

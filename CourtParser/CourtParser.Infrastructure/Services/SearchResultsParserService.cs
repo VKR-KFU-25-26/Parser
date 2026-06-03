@@ -339,9 +339,9 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
 
             // Пытаемся найти дополнительную информацию вокруг ссылки
             var parentRow = await link.EvaluateFunctionAsync<IElementHandle>("el => el.closest('tr')");
-            string courtName = "Не указан";
-            string datesText = "";
-            string partiesText = "";
+            var courtName = "Не указан";
+            var datesText = "";
+            var partiesText = "";
 
             if (parentRow != null)
             {

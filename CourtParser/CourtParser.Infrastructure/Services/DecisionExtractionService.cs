@@ -5,6 +5,9 @@ using System.Text.RegularExpressions;
 
 namespace CourtParser.Infrastructure.Services;
 
+/// <summary>
+/// Сервис для извлечения решений
+/// </summary>
 public class DecisionExtractionService(ILogger<DecisionExtractionService> logger)
 {
     [Obsolete("Obsolete")]

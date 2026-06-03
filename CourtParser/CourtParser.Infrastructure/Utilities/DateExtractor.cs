@@ -3,6 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace CourtParser.Infrastructure.Utilities;
 
+/// <summary>
+/// Класс для извлечения дат
+/// </summary>
 public static class DateExtractor
 {
     public static (string receivedDate, string decisionDate, DateTime? receivedDateObj, DateTime? decisionDateObj) ExtractDates(string datesText)

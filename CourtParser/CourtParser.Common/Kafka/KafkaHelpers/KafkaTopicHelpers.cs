@@ -4,6 +4,9 @@ using Microsoft.Extensions.Logging;
 
 namespace CourtParser.Common.Kafka.KafkaHelpers;
 
+/// <summary>
+/// Настройка топиков
+/// </summary>
 public class KafkaTopicHelpers(ILogger<KafkaTopicHelpers> logger)
 {
     public async Task EnsureTopicExistsAsync(

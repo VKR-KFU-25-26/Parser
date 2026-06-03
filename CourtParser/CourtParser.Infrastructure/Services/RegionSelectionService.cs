@@ -4,9 +4,8 @@ using PuppeteerSharp;
 namespace CourtParser.Infrastructure.Services;
 
 /// <summary>
-/// Выбор региона
+/// Сервис для выбора региона
 /// </summary>
-/// <param name="logger"></param>
 public class RegionSelectionService(ILogger<RegionSelectionService> logger)
 {
    [Obsolete("Obsolete")]

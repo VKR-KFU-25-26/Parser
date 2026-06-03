@@ -14,5 +14,6 @@ public class HttpClientOptions
     /// Параметры запроса
     /// </summary>
     public string Query { get; set; } = "";
+    
     //public string Token { get; set; }
 }

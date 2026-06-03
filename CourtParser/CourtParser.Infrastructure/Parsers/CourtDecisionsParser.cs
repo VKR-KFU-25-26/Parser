@@ -6,25 +6,24 @@ using PuppeteerSharp;
 
 namespace CourtParser.Infrastructure.Parsers;
 
+/// <summary>
+/// Парсер дел
+/// </summary>
+/// <param name="logger"></param>
+/// <param name="regionService"></param>
+/// <param name="searchParser"></param>
+/// <param name="decisionService"></param>
 public class CourtDecisionsParser(
     ILogger<CourtDecisionsParser> logger,
     RegionSelectionService regionService,
     SearchResultsParserService searchParser,
     DecisionExtractionService decisionService) : IParser
 {
-    private const int MaxPages = 2;
+    private const int MaxPages = 1;
 
 
     [Obsolete("Obsolete")]
-    public async Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int page)
-    {
-        return await FillFormAndSearchCasesAsync(regions, CancellationToken.None);
-    }
-    
-    [Obsolete("Obsolete")]
-    private async Task<List<CourtCase>> FillFormAndSearchCasesAsync(
-        List<string>? regions = null, 
-        CancellationToken cancellationToken = default)
+    public async Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int pageCount, CancellationToken cancellationToken)
     {
         using var httpClient = new HttpClient();
         var response = await httpClient.GetAsync("https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai/", cancellationToken);
@@ -98,7 +97,7 @@ public class CourtDecisionsParser(
                 federalDistrict, string.Join(", ", actualRegions));
 
             // Выбор регионов
-            if (regions != null && regions.Any())
+            if (regions.Count != 0)
             {
                 logger.LogInformation("Начинаем выбор регионов: {Regions}", string.Join(", ", regions));
                 await regionService.SelectRegionsAsync(page, regions);
