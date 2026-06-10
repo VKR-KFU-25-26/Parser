@@ -54,7 +54,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             {
                 logger.LogInformation("Найдено дерево с ID 'tree'");
                 await treeDiv.ClickAsync();
-                await Task.Delay(3000);
+                await Task.Delay(15000);
                 return true;
             }
 
@@ -64,7 +64,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             {
                 logger.LogInformation(" Найдено дерево с классом 'aciTree'");
                 await treeByClass.ClickAsync();
-                await Task.Delay(3000);
+                await Task.Delay(15000);
                 return true;
             }
 
@@ -87,7 +87,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             // Ждем появления дерева aciTree
             await page.WaitForSelectorAsync(".aciTree", new WaitForSelectorOptions 
             { 
-                Timeout = 15000,
+                Timeout = 60000,
                 Visible = true
             });
 
@@ -392,7 +392,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 {
                     await expandButton.EvaluateFunctionAsync("el => el.click()");
                     logger.LogInformation(" Раскрыли федеральный округ: {District}", districtName);
-                    await Task.Delay(2000); // Ждем загрузки регионов
+                    await Task.Delay(15000); 
                 }
                 else
                 {
@@ -471,7 +471,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         {
             // Пробуем разные стратегии выбора
             
-            // 1. Сначала пробуем найти и кликнуть на чекбокс через XPath
+            // Сначала пробуем найти и кликнуть на чекбокс через XPath
             var checkboxXpath = "./ancestor::div[@role='treeitem']//span[@class='aciTreeCheck']";
             var checkboxes = await regionElement.XPathAsync(checkboxXpath);
             
@@ -481,7 +481,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 await WaitForElementVisibility(checkbox);
                 await checkbox.EvaluateFunctionAsync("el => el.click()");
                 logger.LogInformation(" Выбран регион {RegionName} через чекбокс", regionName);
-                await Task.Delay(500);
+                await Task.Delay(15000);
                 return;
             }
 
@@ -491,7 +491,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             logger.LogInformation(" Выбран регион {RegionName} через текст", regionName);
             
             // Даем время на применение выбора
-            await Task.Delay(500);
+            await Task.Delay(15000);
         }
         catch (Exception ex)
         {
@@ -528,7 +528,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             if (!isVisible)
             {
                 // Если элемент не видим, ждем немного и проверяем снова
-                await Task.Delay(500);
+                await Task.Delay(15000);
                 
                 isVisible = await element.EvaluateFunctionAsync<bool>(@"
                     (element) => {
@@ -566,7 +566,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                     boundingBox.X + boundingBox.Width / 2,
                     boundingBox.Y + boundingBox.Height / 2
                 );
-                await Task.Delay(200);
+                await Task.Delay(1000);
             }
             else
             {
@@ -611,7 +611,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                     {
                         await button.EvaluateFunctionAsync("el => el.click()");
                         logger.LogInformation(" Подтвердили выбор: {Selector}", selector);
-                        await Task.Delay(2000);
+                        await Task.Delay(10000);
                         return;
                     }
                 }
@@ -628,7 +628,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                     var button = buttons.First();
                     await button.EvaluateFunctionAsync("el => el.click()");
                     logger.LogInformation(" Подтвердили выбор: кнопка '{Text}'", text);
-                    await Task.Delay(2000);
+                    await Task.Delay(10000);
                     return;
                 }
             }
@@ -636,12 +636,12 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             // Если кнопку не нашли, пробуем кликнуть вне модального окна
             await page.ClickAsync("body");
             logger.LogInformation(" Закрыли модальное окно кликом вне его");
-            await Task.Delay(1000);
+            await Task.Delay(10000);
 
             // Альтернатива - нажатие клавиши Escape
             await page.Keyboard.PressAsync("Escape");
             logger.LogInformation(" Закрыли модальное окно клавишей Escape");
-            await Task.Delay(1000);
+            await Task.Delay(10000);
         }
         catch (Exception ex)
         {

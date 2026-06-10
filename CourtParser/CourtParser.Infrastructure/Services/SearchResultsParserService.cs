@@ -35,14 +35,14 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 {
                     await page.WaitForSelectorAsync("table.table-bordered", new WaitForSelectorOptions 
                     { 
-                        Timeout = 10000 
+                        Timeout = 60000 
                     });
                 }
                 catch
                 {
                     await page.WaitForSelectorAsync("table", new WaitForSelectorOptions 
                     { 
-                        Timeout = 10000 
+                        Timeout = 60000 
                     });
                 }
 
@@ -55,12 +55,13 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 }
 
                 logger.LogWarning("На попытке #{Attempt} не найдено дел, ждем и пробуем снова", attempt);
-                await Task.Delay(2000);
+                await Task.Delay(10000);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Ошибка при парсинге на попытке #{Attempt}", attempt);
-                if (attempt < maxRetries) await Task.Delay(2000);
+                if (attempt < maxRetries) 
+                    await Task.Delay(10000);
             }
         }
 
@@ -176,8 +177,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 CourtType = TextCleaner.CleanText(courtName),
                 HasDecision = false,
                 DecisionLink = string.Empty,
-                
-                // НОВЫЕ ПОЛЯ:
                 FederalDistrict = _currentFederalDistrict,
                 Region = _currentRegion,
                 Plaintiff = plaintiff,
@@ -202,7 +201,7 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         {
             logger.LogInformation("Запуск альтернативного парсинга...");
 
-            // Способ 1: Ищем все строки таблиц
+            // Ищем все строки таблиц
             var allRows = await page.QuerySelectorAllAsync("tr");
             logger.LogInformation("Найдено строк в таблицах: {Count}", allRows.Length);
 
@@ -230,7 +229,7 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 }
             }
 
-            // Способ 2: Ищем ссылки на дела
+            // Ищем ссылки на дела
             if (cases.Count == 0)
             {
                 var caseLinks = await page.QuerySelectorAllAsync("a[href*='/extended']");

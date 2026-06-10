@@ -80,7 +80,7 @@ public class CourtDecisionsParser(
             // Заполнение формы
             await FillSearchForm(page, cancellationToken);
         
-            await Task.Delay(2000, cancellationToken);
+            await Task.Delay(15000, cancellationToken);
 
             // Определяем федеральный округ и регионы для контекста парсера
             var (federalDistrict, actualRegions) = ParseRegionsForContext(regions);
@@ -102,12 +102,12 @@ public class CourtDecisionsParser(
                 logger.LogInformation("Начинаем выбор регионов: {Regions}", string.Join(", ", regions));
                 await regionService.SelectRegionsAsync(page, regions);
             
-                await Task.Delay(3000, cancellationToken);
+                await Task.Delay(15000, cancellationToken);
             
                 // Проверяем, что форма все еще доступна
                 await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
                 { 
-                    Timeout = 10000 
+                    Timeout = 60000 
                 });
             }
 
@@ -206,9 +206,9 @@ public class CourtDecisionsParser(
         // Загрузки категорий
         await page.WaitForFunctionAsync(
             "() => document.querySelector('#extendedSearch_sub_category_1') !== null",
-            new WaitForFunctionOptions { Timeout = 15000 }
+            new WaitForFunctionOptions { Timeout = 60000 }
         );
-        await Task.Delay(2000, cancellationToken);
+        await Task.Delay(15000, cancellationToken);
 
         // Выбираем категорию: Имущественные споры
         await page.SelectAsync("#extendedSearch_sub_category_1", "46");
@@ -217,15 +217,15 @@ public class CourtDecisionsParser(
         // Ждем загрузки подкатегорий
         await page.WaitForFunctionAsync(
             "() => document.querySelector('#extendedSearch_sub_category_2') !== null",
-            new WaitForFunctionOptions { Timeout = 15000 }
+            new WaitForFunctionOptions { Timeout = 60000 }
         );
-        await Task.Delay(2000, cancellationToken);
+        await Task.Delay(15000, cancellationToken);
 
         // Выбираем подкатегорию: Иски о взыскании сумм по договору займа, кредитному договору
         await page.SelectAsync("#extendedSearch_sub_category_2", "53");
         logger.LogInformation("Выбрана подкатегория: Иски о взыскании сумм по договору займа, кредитному договору");
     
-        await Task.Delay(2000, cancellationToken);
+        await Task.Delay(15000, cancellationToken);
     }
 
     private async Task PerformSearch(IPage page, CancellationToken cancellationToken)
@@ -237,11 +237,11 @@ public class CourtDecisionsParser(
             // Загрузки кнопки
             await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
             { 
-                Timeout = 10000,
+                Timeout = 50000,
                 Visible = true 
             });
         
-            await Task.Delay(2000, cancellationToken);
+            await Task.Delay(15000, cancellationToken);
         
             // Используем простой клик без ожидания навигации
             await page.EvaluateExpressionAsync(@"
@@ -254,7 +254,7 @@ public class CourtDecisionsParser(
             {
                 await page.WaitForSelectorAsync("table.table-bordered", new WaitForSelectorOptions 
                 { 
-                    Timeout = 45000,
+                    Timeout = 60000,
                     Visible = true 
                 });
             }
@@ -264,11 +264,11 @@ public class CourtDecisionsParser(
                 // Пробуем альтернативный селектор
                 await page.WaitForSelectorAsync("table", new WaitForSelectorOptions 
                 { 
-                    Timeout = 10000 
+                    Timeout = 50000 
                 });
             }
         
-            await Task.Delay(3000, cancellationToken);
+            await Task.Delay(15000, cancellationToken);
         
             logger.LogInformation("Результаты поиска загружены");
         }
@@ -291,7 +291,7 @@ public class CourtDecisionsParser(
             {
                 // Убираем передачу DecisionDate
                 await decisionService.CheckAndExtractDecisionAsync(page, courtCase, cancellationToken);
-                await Task.Delay(3000, cancellationToken);
+                await Task.Delay(15000, cancellationToken);
             }
         }
     
@@ -331,7 +331,7 @@ public class CourtDecisionsParser(
                 var navigationTask = page.WaitForNavigationAsync(new NavigationOptions
                 {
                     WaitUntil = [WaitUntilNavigation.Networkidle2],
-                    Timeout = 30000
+                    Timeout = 60000
                 });
 
                 await nextPageLink.ClickAsync();
@@ -339,7 +339,7 @@ public class CourtDecisionsParser(
                 // Ждем загрузки новой страницы
                 await navigationTask;
 
-                await Task.Delay(3000, cancellationToken);
+                await Task.Delay(15000, cancellationToken);
 
                 // Парсим текущую страницу
                 var pageCases = await searchParser.ParseSearchResultsWithRetry(page);
@@ -354,7 +354,7 @@ public class CourtDecisionsParser(
                 allCases.AddRange(pageCases);
                 logger.LogInformation("Спарсено дел на странице {Page}: {Count}", currentPage, pageCases.Count);
 
-                await Task.Delay(2000, cancellationToken);
+                await Task.Delay(15000, cancellationToken);
             }
 
             logger.LogInformation("Пагинация завершена. Обработано страниц: {Pages}", MaxPages);

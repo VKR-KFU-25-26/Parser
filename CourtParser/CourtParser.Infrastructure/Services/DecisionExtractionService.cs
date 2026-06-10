@@ -25,19 +25,19 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         
             // Ждем загрузки страницы
             await page.GoToAsync(courtCase.Link, WaitUntilNavigation.Networkidle2);
-            await Task.Delay(3000, cancellationToken);
+            await Task.Delay(15000, cancellationToken);
 
-            // 1. Извлекаем детальную информацию
+            // Извлекаем детальную информацию
             await ExtractDetailedCaseInfo(page, courtCase);
         
-            // 2. Извлекаем оригинальную ссылку
+            // Извлекаем оригинальную ссылку
             await ExtractOriginalCaseLinkAsync(page, courtCase);
         
-            // 3. Проверяем файловые решения
+            // Проверяем файловые решения
             bool fileDecisionFound = await CheckFileDecisionLinks(page, courtCase);
             if (fileDecisionFound) return;
 
-            // 4. Проверяем HTML решения в порядке приоритета
+            // Проверяем HTML решения в порядке приоритета
             var extractionMethods = new List<Func<IPage, CourtCase, Task<bool>>>
             {
                 ExtractFromBlockquoteStructure,
@@ -51,13 +51,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 bool found = await method(page, courtCase);
                 if (found)
                 {
-                    logger.LogInformation("Решение найдено методом: {MethodName}", 
-                        method.Method.Name);
+                    logger.LogInformation("Решение найдено методом: {MethodName}", method.Method.Name);
                     return;
                 }
             }
 
-            // 5. Если ничего не найдено
+            // Если ничего не найдено
             logger.LogInformation("Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
         }
         catch (Exception ex)
@@ -69,7 +68,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
    
     /// <summary>
-    /// ПРОСТОЙ МЕТОД: Извлекает решение через CSS селекторы
+    /// Извлекает решение через CSS селекторы
     /// </summary>
     private async Task<bool> ExtractFromBlockquoteStructure(IPage page, CourtCase courtCase)
     {
@@ -77,7 +76,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Ищем решение в структуре blockquote...");
         
-            // СПОСОБ 1: Простой поиск blockquote
+            // Простой поиск blockquote
             var blockquote = await page.QuerySelectorAsync("blockquote");
         
             if (blockquote != null)
@@ -92,7 +91,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 }
             }
         
-            // СПОСОБ 2: Ищем конкретную структуру
+            // Ищем конкретную структуру
             var rows = await page.QuerySelectorAllAsync("div.row");
         
             foreach (var row in rows)
@@ -437,13 +436,13 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
         try
         {
-            // 1. Обрабатываем защищенные данные
+            // Обрабатываем защищенные данные
             html = ProcessProtectedData(html);
         
-            // 2. Убираем комментарии
+            // Убираем комментарии
             html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
         
-            // 3. Убираем опасные теги
+            // Убираем опасные теги
             var dangerousTags = new[] { "script", "style", "iframe", "object", "embed", "link", "meta" };
             foreach (var tag in dangerousTags)
             {
@@ -452,10 +451,10 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 html = Regex.Replace(html, $@"<{tag}[^>]*/>", "", RegexOptions.IgnoreCase);
             }
         
-            // 4. Декодируем HTML сущности
+            // Декодируем HTML сущности
             html = System.Net.WebUtility.HtmlDecode(html);
         
-            // 5. Нормализуем пробелы
+            // Нормализуем пробелы
             html = Regex.Replace(html, @"\s+", " ");
         
             return html.Trim();
@@ -790,7 +789,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             if (showLinkButton == null) return;
 
             await showLinkButton.ClickAsync();
-            await Task.Delay(2000);
+            await Task.Delay(15000);
 
             var originalLinkContainer = await page.QuerySelectorAsync("#original-link");
             if (originalLinkContainer != null)

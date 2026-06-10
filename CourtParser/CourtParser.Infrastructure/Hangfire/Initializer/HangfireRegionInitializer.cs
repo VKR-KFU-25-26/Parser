@@ -16,7 +16,6 @@ public static class HangfireRegionInitializer
     [Obsolete("Obsolete")]
     public static void ScheduleRegionJobs()
     {
-        // Первая проверка без блокировки
         lock (Lock)
         {
             if (_initialized)
@@ -24,35 +23,36 @@ public static class HangfireRegionInitializer
                 Console.WriteLine("Hangfire задачи уже инициализированы, пропускаем...");
                 return;
             }
-        }
-
-        lock (Lock)
-        {
-            // Вторая проверка внутри блокировки
-            if (_initialized)
-            {
-                Console.WriteLine("Hangfire задачи уже инициализированы (второй поток), пропускаем...");
-                return;
-            }
-            
+        
             Console.WriteLine("Регистрация Hangfire задач...");
-            
+        
             // Очищаем старые задачи перед добавлением новых
             CleanupOldJobs();
-            
+        
             var allRegions = RussianRegions.GetAllRegions();
-            
-            foreach (var region in allRegions)
+        
+            if (allRegions.Count == 0) return;
+        
+            // Запускаем первую задачу
+            string? lastJobId = BackgroundJob.Enqueue<IRegionJobService>(
+                x => x.ProcessRegionAsync(allRegions[0])
+            );
+        
+            // Для остальных регионов создаем цепочку
+            for (int i = 1; i < allRegions.Count; i++)
             {
-                BackgroundJob.Enqueue<IRegionJobService>(
+                var region = allRegions[i];
+                var previousJobId = lastJobId;
+            
+                lastJobId = BackgroundJob.ContinueJobWith<IRegionJobService>(
+                    previousJobId,
                     x => x.ProcessRegionAsync(region)
                 );
             }
-            
-            // Используем volatile запись
+        
             _initialized = true;
-            
-            Console.WriteLine($"Зарегистрировано {allRegions.Count} задач");
+        
+            Console.WriteLine($"Зарегистрировано {allRegions.Count} задач (последовательно)");
             Console.WriteLine($"Initialized at {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         }
     }
