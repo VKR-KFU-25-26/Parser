@@ -7,7 +7,7 @@ using PuppeteerSharp;
 namespace CourtParser.Infrastructure.Parsers;
 
 /// <summary>
-/// Парсер дел
+/// Парсер дел (основной пайплайн)
 /// </summary>
 public class CourtDecisionsParser(
     ILogger<CourtDecisionsParser> logger,
