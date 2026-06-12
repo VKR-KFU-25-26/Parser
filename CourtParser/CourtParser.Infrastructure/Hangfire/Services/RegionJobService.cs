@@ -131,41 +131,41 @@ public class RegionJobService : IRegionJobService
         var embeddedDecisions = messages.Count(m => m.HasDecision && m.DecisionLink.Contains("#embedded_decision"));
         var externalDecisions = messages.Count(m => m.HasDecision && m.DecisionLink.Contains("#embedded_decision") == false);
 
-        Console.WriteLine($"СТАТИСТИКА:");
-        Console.WriteLine($"   • Всего дел: {messages.Count}");
-        Console.WriteLine($"   • С решениями: {casesWithDecisions}");
-        Console.WriteLine($"   • Встроенных решений: {embeddedDecisions}");
-        Console.WriteLine($"   • Внешних документов: {externalDecisions}");
+        Console.WriteLine("СТАТИСТИКА:");
+        Console.WriteLine($"Всего дел: {messages.Count}");
+        Console.WriteLine($"С решениями: {casesWithDecisions}");
+        Console.WriteLine($"Встроенных решений: {embeddedDecisions}");
+        Console.WriteLine($"Внешних документов: {externalDecisions}");
         Console.WriteLine();
 
         for (var i = 0; i < messages.Count; i++)
         {
             var message = messages[i];
             Console.WriteLine($"Дело #{i + 1}");
-            Console.WriteLine($"   Суд: {message.CourtType}");
-            Console.WriteLine($"  Номер: {message.CaseNumber}");
+            Console.WriteLine($"Суд: {message.CourtType}");
+            Console.WriteLine($"Номер: {message.CaseNumber}");
 
             if (!string.IsNullOrEmpty(message.CaseCategory))
             {
-                Console.WriteLine($" Категория: {message.CaseCategory}");
+                Console.WriteLine($"Категория: {message.CaseCategory}");
             }
 
             if (message.ReceivedDate.HasValue)
             {
-                Console.WriteLine($"   Поступление: {message.ReceivedDate.Value:dd.MM.yyyy}");
+                Console.WriteLine($"Поступление: {message.ReceivedDate.Value:dd.MM.yyyy}");
             }
 
             if (!string.IsNullOrEmpty(message.Plaintiff))
             {
-                Console.WriteLine($"  Истец: {TruncateText(message.Plaintiff, 60)}");
+                Console.WriteLine($"Истец: {TruncateText(message.Plaintiff, 60)}");
             }
 
             if (!string.IsNullOrEmpty(message.Defendant))
             {
-                Console.WriteLine($"    Ответчик: {TruncateText(message.Defendant, 60)}");
+                Console.WriteLine($"Ответчик: {TruncateText(message.Defendant, 60)}");
             }
 
-            Console.WriteLine($"  Решение: {(message.HasDecision ? "ДА" : "НЕТ")}");
+            Console.WriteLine($"Решение: {(message.HasDecision ? "ДА" : "НЕТ")}");
 
             if (message.HasDecision)
             {
@@ -173,10 +173,10 @@ public class RegionJobService : IRegionJobService
                     ? " Встроенное" 
                     : "Отдельный документ";
                 
-                Console.WriteLine($"    Тип: {decisionType}");
+                Console.WriteLine($"Тип: {decisionType}");
             }
 
-            Console.WriteLine($"  Ссылка: {message.Link}");
+            Console.WriteLine($"Ссылка: {message.Link}");
 
             if (i < messages.Count - 1)
             {
@@ -184,13 +184,13 @@ public class RegionJobService : IRegionJobService
             }
         }
 
-        Console.WriteLine($" ИТОГ по региону {region}:");
-        Console.WriteLine($"   Дела с решениями: {casesWithDecisions}/{messages.Count}");
+        Console.WriteLine($"ИТОГ по региону {region}:");
+        Console.WriteLine($"Дела с решениями: {casesWithDecisions}/{messages.Count}");
 
         if (casesWithDecisions > 0)
         {
             var successRate = (double)casesWithDecisions / messages.Count * 100;
-            Console.WriteLine($" Эффективность: {successRate:F1}%");
+            Console.WriteLine($"Эффективность: {successRate:F1}%");
         }
 
         Console.WriteLine("".PadRight(70, '═'));

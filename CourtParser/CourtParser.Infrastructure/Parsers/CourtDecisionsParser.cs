@@ -9,10 +9,6 @@ namespace CourtParser.Infrastructure.Parsers;
 /// <summary>
 /// Парсер дел
 /// </summary>
-/// <param name="logger"></param>
-/// <param name="regionService"></param>
-/// <param name="searchParser"></param>
-/// <param name="decisionService"></param>
 public class CourtDecisionsParser(
     ILogger<CourtDecisionsParser> logger,
     RegionSelectionService regionService,
@@ -20,8 +16,10 @@ public class CourtDecisionsParser(
     DecisionExtractionService decisionService) : IParser
 {
     private const int MaxPages = 1;
-
-
+    
+    /// <summary>
+    /// Основной метод парсинга дел: запускает браузер, заполняет форму, выполняет поиск и извлекает решения
+    /// </summary>
     [Obsolete("Obsolete")]
     public async Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int pageCount, CancellationToken cancellationToken)
     {
@@ -77,15 +75,12 @@ public class CourtDecisionsParser(
 
             logger.LogInformation("Форма загружена, начинаем заполнение...");
 
-            // Заполнение формы
             await FillSearchForm(page, cancellationToken);
         
             await Task.Delay(15000, cancellationToken);
 
-            // Определяем федеральный округ и регионы для контекста парсера
             var (federalDistrict, actualRegions) = ParseRegionsForContext(regions);
     
-            // Устанавливаем контекст поиска для парсера
             searchParser.SetSearchContext(
                 federalDistrict,
                 string.Join(", ", actualRegions),
@@ -96,7 +91,6 @@ public class CourtDecisionsParser(
             logger.LogInformation("Контекст поиска: ФО={FederalDistrict}, Регионы={Regions}", 
                 federalDistrict, string.Join(", ", actualRegions));
 
-            // Выбор регионов
             if (regions.Count != 0)
             {
                 logger.LogInformation("Начинаем выбор регионов: {Regions}", string.Join(", ", regions));
@@ -104,17 +98,14 @@ public class CourtDecisionsParser(
             
                 await Task.Delay(15000, cancellationToken);
             
-                // Проверяем, что форма все еще доступна
                 await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
                 { 
                     Timeout = 60000 
                 });
             }
 
-            // Выполнение поиска
             await PerformSearch(page, cancellationToken);
 
-            // Парсинг результатов
             var firstPageCases = await searchParser.ParseSearchResultsWithRetry(page);
             allCases.AddRange(firstPageCases);
 
@@ -123,7 +114,6 @@ public class CourtDecisionsParser(
                 await ParseAdditionalPagesAsync(page, allCases, cancellationToken);
             }
 
-            // проверка решений
             if (allCases.Count > 0)
             {
                 await CheckDecisionsForCases(page, allCases, cancellationToken);
@@ -155,7 +145,6 @@ public class CourtDecisionsParser(
             return ("Приволжский федеральный округ", new List<string> { "Республика Татарстан" });
         }
 
-        // Список федеральных округов
         var federalDistricts = new List<string>
         {
             "Центральный федеральный округ",
@@ -169,28 +158,26 @@ public class CourtDecisionsParser(
             "Крымский федеральный округ"
         };
 
-        // Ищем федеральный округ в переданных регионах
         var federalDistrict = regions.FirstOrDefault(r => federalDistricts.Contains(r)) 
                               ?? "Приволжский федеральный округ";
 
-        // Фильтруем только конкретные регионы (не федеральные округа)
         var actualRegions = regions.Where(r => !federalDistricts.Contains(r)).ToList();
 
-        // Если передали только федеральный округ без конкретных регионов
         if (actualRegions.Count == 0 && federalDistricts.Contains(federalDistrict))
         {
-            // Для случая когда выбрали весь федеральный округ
             actualRegions = [federalDistrict];
         }
         else if (actualRegions.Count == 0)
         {
-            // Дефолтный случай
             actualRegions = ["Республика Татарстан"];
         }
 
         return (federalDistrict, actualRegions);
     }
 
+    /// <summary>
+    /// Заполняет форму расширенного поиска: тип дела, категория, подкатегория
+    /// </summary>
     private async Task FillSearchForm(IPage page, CancellationToken cancellationToken)
     {
         var canSelectRegions = await CheckRegionSelectionAvailability(page);
@@ -199,42 +186,39 @@ public class CourtDecisionsParser(
             logger.LogWarning("Выбор регионов недоступен, продолжаем без фильтрации по регионам");
         }
     
-        // Выбираем тип дела: Первая инстанция (гражданские и административные дела)
         await page.SelectAsync("#extendedSearch_case_type", "gr_first");
         logger.LogInformation("Выбран тип дела: Первая инстанция (гражданские и административные дела)");
 
-        // Загрузки категорий
         await page.WaitForFunctionAsync(
             "() => document.querySelector('#extendedSearch_sub_category_1') !== null",
             new WaitForFunctionOptions { Timeout = 60000 }
         );
         await Task.Delay(15000, cancellationToken);
 
-        // Выбираем категорию: Имущественные споры
         await page.SelectAsync("#extendedSearch_sub_category_1", "46");
         logger.LogInformation("Выбрана категория: Имущественные споры");
 
-        // Ждем загрузки подкатегорий
         await page.WaitForFunctionAsync(
             "() => document.querySelector('#extendedSearch_sub_category_2') !== null",
             new WaitForFunctionOptions { Timeout = 60000 }
         );
         await Task.Delay(15000, cancellationToken);
 
-        // Выбираем подкатегорию: Иски о взыскании сумм по договору займа, кредитному договору
         await page.SelectAsync("#extendedSearch_sub_category_2", "53");
         logger.LogInformation("Выбрана подкатегория: Иски о взыскании сумм по договору займа, кредитному договору");
     
         await Task.Delay(15000, cancellationToken);
     }
 
+    /// <summary>
+    /// Выполняет поиск, нажимая кнопку поиска и ожидая загрузки результатов
+    /// </summary>
     private async Task PerformSearch(IPage page, CancellationToken cancellationToken)
     {
         try
         {
             logger.LogInformation("Нажимаем кнопку поиска...");
         
-            // Загрузки кнопки
             await page.WaitForSelectorAsync("#extendedSearch_search", new WaitForSelectorOptions 
             { 
                 Timeout = 50000,
@@ -243,13 +227,11 @@ public class CourtDecisionsParser(
         
             await Task.Delay(15000, cancellationToken);
         
-            // Используем простой клик без ожидания навигации
             await page.EvaluateExpressionAsync(@"
             document.querySelector('#extendedSearch_search').click();");
         
             logger.LogInformation("Кнопка поиска нажата, ждем результатов...");
         
-            // Ждем загрузки результатов с увеличенным таймаутом
             try
             {
                 await page.WaitForSelectorAsync("table.table-bordered", new WaitForSelectorOptions 
@@ -261,7 +243,6 @@ public class CourtDecisionsParser(
             catch (Exception ex)
             {
                 logger.LogWarning($"Не удалось найти таблицу результатов: {ex.Message}");
-                // Пробуем альтернативный селектор
                 await page.WaitForSelectorAsync("table", new WaitForSelectorOptions 
                 { 
                     Timeout = 50000 
@@ -278,6 +259,10 @@ public class CourtDecisionsParser(
             throw;
         }
     }
+    
+    /// <summary>
+    /// Проверяет наличие решений для всех найденных дел
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task CheckDecisionsForCases(IPage page, List<CourtCase> cases, CancellationToken cancellationToken)
     {
@@ -289,7 +274,6 @@ public class CourtDecisionsParser(
         {
             if (!string.IsNullOrEmpty(courtCase.Link))
             {
-                // Убираем передачу DecisionDate
                 await decisionService.CheckAndExtractDecisionAsync(page, courtCase, cancellationToken);
                 await Task.Delay(15000, cancellationToken);
             }
@@ -299,6 +283,9 @@ public class CourtDecisionsParser(
             casesToCheck.Count(c => c.HasDecision));
     }
 
+    /// <summary>
+    /// Парсит дополнительные страницы с результатами поиска (пагинация)
+    /// </summary>
     private async Task ParseAdditionalPagesAsync(IPage page, List<CourtCase> allCases, CancellationToken cancellationToken)
     {
         try
@@ -309,7 +296,6 @@ public class CourtDecisionsParser(
 
                 logger.LogInformation("Проверяем наличие страницы {Page}...", currentPage);
 
-                // Ищем пагинацию
                 var pagination = await page.QuerySelectorAsync(".pagination");
                 if (pagination == null)
                 {
@@ -317,7 +303,6 @@ public class CourtDecisionsParser(
                     break;
                 }
 
-                // Ищем ссылку на конкретную страницу
                 var nextPageLink = await pagination.QuerySelectorAsync($"a[href*='page={currentPage}']");
                 if (nextPageLink == null)
                 {
@@ -327,7 +312,6 @@ public class CourtDecisionsParser(
 
                 logger.LogInformation("Переходим на страницу {Page}...", currentPage);
 
-                // для перехода на следующую страницу
                 var navigationTask = page.WaitForNavigationAsync(new NavigationOptions
                 {
                     WaitUntil = [WaitUntilNavigation.Networkidle2],
@@ -336,12 +320,10 @@ public class CourtDecisionsParser(
 
                 await nextPageLink.ClickAsync();
         
-                // Ждем загрузки новой страницы
                 await navigationTask;
 
                 await Task.Delay(15000, cancellationToken);
 
-                // Парсим текущую страницу
                 var pageCases = await searchParser.ParseSearchResultsWithRetry(page);
         
                 if (pageCases.Count == 0)
@@ -350,7 +332,6 @@ public class CourtDecisionsParser(
                     break;
                 }
 
-                // Просто добавляем все дела
                 allCases.AddRange(pageCases);
                 logger.LogInformation("Спарсено дел на странице {Page}: {Count}", currentPage, pageCases.Count);
 
@@ -369,11 +350,14 @@ public class CourtDecisionsParser(
         }
     }
     
+    /// <summary>
+    /// Проверяет доступность выбора регионов на странице
+    /// </summary>
+    /// <returns>true если элементы выбора регионов найдены, иначе false</returns>
     private async Task<bool> CheckRegionSelectionAvailability(IPage page)
     {
         try
         {
-            // Проверяем различные элементы, которые могут указывать на доступность выбора регионов
             var indicators = await page.QuerySelectorAllAsync(
                 "[class*='court'], [class*='region'], button, a, input[type='button']");
         

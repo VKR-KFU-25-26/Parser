@@ -8,6 +8,9 @@ namespace CourtParser.Infrastructure.Utilities;
 /// </summary>
 public static class DateExtractor
 {
+    /// <summary>
+    /// Извлекает даты поступления и решения суда из текстового блока
+    /// </summary>
     public static (string receivedDate, string decisionDate, DateTime? receivedDateObj, DateTime? decisionDateObj) ExtractDates(string datesText)
     {
         if (string.IsNullOrWhiteSpace(datesText))
@@ -20,7 +23,6 @@ public static class DateExtractor
         string receivedDate = "не указана";
         string decisionDate = "не указана";
 
-        // Паттерны для дат
         var patterns = new[]
         {
             @"Поступило:\s*(\d{1,2}\s+\w+\s+\d{4}).*?Решение:\s*(\d{1,2}\s+\w+\s+\d{4})",
@@ -45,6 +47,9 @@ public static class DateExtractor
         return (receivedDate, decisionDate, receivedDateObj, decisionDateObj);
     }
 
+    /// <summary>
+    /// Преобразует строку с датой на русском языке в объект DateTime
+    /// </summary>
     private static DateTime? ParseRussianDate(string dateText)
     {
         if (string.IsNullOrWhiteSpace(dateText))
@@ -52,7 +57,6 @@ public static class DateExtractor
 
         try
         {
-            // Заменяем русские названия месяцев на английские
             var months = new Dictionary<string, string>
             {
                 ["января"] = "January", ["февраля"] = "February", ["марта"] = "March",
@@ -74,7 +78,7 @@ public static class DateExtractor
         }
         catch
         {
-            // Игнорируем ошибки парсинга дат
+            // 
         }
 
         return null;

@@ -13,6 +13,9 @@ public static class HangfireRegionInitializer
     private static volatile bool _initialized;
     private static readonly object Lock = new();
     
+    /// <summary>
+    /// Планирует последовательные Hangfire задачи для обработки всех регионов
+    /// </summary>
     [Obsolete("Obsolete")]
     public static void ScheduleRegionJobs()
     {
@@ -26,20 +29,17 @@ public static class HangfireRegionInitializer
         
             Console.WriteLine("Регистрация Hangfire задач...");
         
-            // Очищаем старые задачи перед добавлением новых
             CleanupOldJobs();
         
             var allRegions = RussianRegions.GetAllRegions();
         
             if (allRegions.Count == 0) return;
         
-            // Запускаем первую задачу
             string? lastJobId = BackgroundJob.Enqueue<IRegionJobService>(
                 x => x.ProcessRegionAsync(allRegions[0])
             );
         
-            // Для остальных регионов создаем цепочку
-            for (int i = 1; i < allRegions.Count; i++)
+            for (var i = 1; i < allRegions.Count; i++)
             {
                 var region = allRegions[i];
                 var previousJobId = lastJobId;
@@ -57,6 +57,9 @@ public static class HangfireRegionInitializer
         }
     }
     
+    /// <summary>
+    /// Очищает старые Hangfire задачи, связанные с обработкой регионов
+    /// </summary>
     [Obsolete("Obsolete")]
     private static void CleanupOldJobs()
     {
@@ -64,7 +67,6 @@ public static class HangfireRegionInitializer
         {
             using var connection = JobStorage.Current.GetConnection();
             
-            // Очищаем все enqueued задачи для IRegionJobService
             var monitoringApi = JobStorage.Current.GetMonitoringApi();
             var queues = monitoringApi.Queues();
             
@@ -80,7 +82,6 @@ public static class HangfireRegionInitializer
                 }
             }
             
-            // Очищаем recurring задачи
             var recurringJobs = connection.GetRecurringJobs();
             foreach (var job in recurringJobs)
             {
@@ -90,7 +91,6 @@ public static class HangfireRegionInitializer
                 }
             }
             
-            // Очищаем scheduled задачи
             var scheduledJobs = monitoringApi.ScheduledJobs(0, 1000);
             foreach (var job in scheduledJobs)
             {
@@ -100,7 +100,6 @@ public static class HangfireRegionInitializer
                 }
             }
             
-            // Очищаем processing задачи
             var processingJobs = monitoringApi.ProcessingJobs(0, 1000);
             foreach (var job in processingJobs)
             {
@@ -113,7 +112,7 @@ public static class HangfireRegionInitializer
         }
         catch (Exception)
         {
-            // Продолжаем выполнение, даже если очистка не удалась
+            // 
         }
     }
 }

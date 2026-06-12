@@ -25,7 +25,6 @@ public class Mock : BackgroundService
     {
         _logger.LogInformation("Kafka Test Data Producer Service started");
 
-        // Ждем немного перед началом работы
         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -44,7 +43,6 @@ public class Mock : BackgroundService
 
                 _logger.LogInformation("✅ Test messages sent successfully. Waiting for next interval...");
 
-                // Ждем перед следующей отправкой
                 await Task.Delay(_interval, stoppingToken);
             }
             catch (OperationCanceledException)
@@ -55,7 +53,7 @@ public class Mock : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in Kafka Test Data Producer Service");
-                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); // Ждем перед повторной попыткой
+                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); 
             }
         }
 

@@ -16,9 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHostedService<Mock>();
 builder.Services.AddHangfire(config =>
 {
-#pragma warning disable CS0618 // Type or member is obsolete
     config.UsePostgreSqlStorage(builder.Configuration.GetConnectionString("DefaultConnection"));
-#pragma warning restore CS0618 // Type or member is obsolete
 });
 builder.Services.AddHangfireServer();
 
@@ -33,7 +31,6 @@ app.UseRouting();
 #pragma warning disable ASP0014
 app.UseEndpoints(endpoints =>
 {
-    // Hangfire Dashboard с базовой авторизацией
     endpoints.MapHangfireDashboard("/hangfire", new DashboardOptions
     {
         Authorization =
@@ -47,8 +44,8 @@ app.UseEndpoints(endpoints =>
                 [
                     new BasicAuthAuthorizationUser
                     {
-                        Login = "admin",
-                        PasswordClear = "admin"
+                        Login = "hangfireAdmin12345",
+                        PasswordClear = "hangfireAdmin12345"
                     }
                 ]
             })

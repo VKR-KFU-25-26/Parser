@@ -10,6 +10,9 @@ namespace CourtParser.Infrastructure.Services;
 /// </summary>
 public class DecisionExtractionService(ILogger<DecisionExtractionService> logger)
 {
+    // <summary>
+    /// Проверяет наличие решения и извлекает его для указанного дела
+    /// </summary>
     [Obsolete("Obsolete")]
     public async Task CheckAndExtractDecisionAsync(IPage page, CourtCase courtCase, CancellationToken cancellationToken = default)
     {
@@ -17,13 +20,11 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Проверяем наличие решения для дела: {CaseNumber}", courtCase.CaseNumber);
         
-            // Сбрасываем флаг решения
             courtCase.HasDecision = false;
             courtCase.DecisionLink = string.Empty;
             courtCase.DecisionType = "Не найдено";
             courtCase.DecisionContent = string.Empty;
         
-            // Ждем загрузки страницы
             await page.GoToAsync(courtCase.Link, WaitUntilNavigation.Networkidle2);
             await Task.Delay(15000, cancellationToken);
 
@@ -56,7 +57,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 }
             }
 
-            // Если ничего не найдено
             logger.LogInformation("Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
         }
         catch (Exception ex)
@@ -76,7 +76,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Ищем решение в структуре blockquote...");
         
-            // Простой поиск blockquote
             var blockquote = await page.QuerySelectorAsync("blockquote");
         
             if (blockquote != null)
@@ -91,7 +90,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 }
             }
         
-            // Ищем конкретную структуру
             var rows = await page.QuerySelectorAllAsync("div.row");
         
             foreach (var row in rows)
@@ -103,7 +101,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 var h3Text = await h3.EvaluateFunctionAsync<string>("el => el.textContent || ''");
                 if (!h3Text.Contains("Решение") && !h3Text.Contains("Определение")) continue;
             
-                // Ищем blockquote в этом row
                 var bq = await row.QuerySelectorAsync("blockquote");
                 if (bq != null)
                 {
@@ -111,7 +108,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                     return await ProcessDecisionHtml(html, courtCase, "row_blockquote");
                 }
             
-                // Если нет blockquote, берем весь row
                 var rowHtml = await row.EvaluateFunctionAsync<string>("el => el.innerHTML");
                 return await ProcessDecisionHtml(rowHtml, courtCase, "row_content");
             }
@@ -126,7 +122,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// Метод через XPath
+    /// / Извлекает решение через XPath 
     /// </summary>
     [Obsolete("Obsolete")]
     private async Task<bool> ExtractFromXPath(IPage page, CourtCase courtCase)
@@ -179,7 +175,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// Извлекает решение из стандартной HTML структуры
+    /// Извлекает решение из стандартной HTML структуры по маркерам
     /// </summary>
     private async Task<bool> ExtractFromStandardHtmlStructure(IPage page, CourtCase courtCase)
     {
@@ -229,7 +225,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
     
     /// <summary>
-    /// Простой метод извлечения решения
+    /// Метод извлечения текста решения без HTML разметки
     /// </summary>
     private async Task<bool> ExtractSimpleDecisionFromPage(IPage page, CourtCase courtCase)
     {
@@ -319,20 +315,17 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// Обрабатывает извлеченный HTML решения
+    /// Обрабатывает извлеченный HTML решения и сохраняет в обьект дела
     /// </summary>
     private async Task<bool> ProcessDecisionHtml(string html, CourtCase courtCase, string methodName)
     {
         try
         {
-            // Убираем таблицу law-case-table если есть
             html = RemoveLawCaseTable(html);
             
-            // Обрабатываем защищенные данные
             html = ProcessProtectedData(html);
             
-            // Очищаем HTML
-            string cleanHtml = CleanHtmlForStorage(html);
+            var cleanHtml = CleanHtmlForStorage(html);
             
             if (string.IsNullOrWhiteSpace(cleanHtml) || cleanHtml.Length < 500)
             {
@@ -340,7 +333,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 return false;
             }
             
-            // Проверяем валидность
             if (!IsValidDecisionContent(cleanHtml))
             {
                 logger.LogInformation("HTML не прошел валидацию как решение");
@@ -411,7 +403,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// Очищает текст решения
+    /// Очищает текст решения от html 
     /// </summary>
     private string CleanDecisionText(string text)
     {
@@ -427,7 +419,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// Минимальная очистка HTML для безопасного хранения
+    /// Минимальная очистка HTML для хранения
     /// </summary>
     private string CleanHtmlForStorage(string html)
     {
@@ -436,13 +428,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
         try
         {
-            // Обрабатываем защищенные данные
             html = ProcessProtectedData(html);
         
             // Убираем комментарии
             html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
         
-            // Убираем опасные теги
+            // Убираем теги
             var dangerousTags = new[] { "script", "style", "iframe", "object", "embed", "link", "meta" };
             foreach (var tag in dangerousTags)
             {
@@ -454,7 +445,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             // Декодируем HTML сущности
             html = System.Net.WebUtility.HtmlDecode(html);
         
-            // Нормализуем пробелы
             html = Regex.Replace(html, @"\s+", " ");
         
             return html.Trim();
@@ -498,7 +488,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
 
     /// <summary>
-    /// ВАЛИДАЦИЯ содержимого решения
+    /// валидация содержимого решения
     /// </summary>
     private bool IsValidDecisionContent(string content)
     {
@@ -531,8 +521,8 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             "председательствующий"
         };
 
-        bool hasRequired = requiredElements.Any(element => cleanContent.Contains(element));
-        int additionalCount = additionalElements.Count(element => cleanContent.Contains(element));
+        var hasRequired = requiredElements.Any(element => cleanContent.Contains(element));
+        var additionalCount = additionalElements.Count(element => cleanContent.Contains(element));
 
         return hasRequired && additionalCount >= 2;
     }
@@ -669,6 +659,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         return "Документ";
     }
 
+    /// <summary>
+    /// Извлекает детальную информацию о деле 
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task ExtractDetailedCaseInfo(IPage page, CourtCase courtCase)
     {
@@ -686,6 +679,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
 
+    /// <summary>
+    /// Извлекает информацию из заголовка дела (номер, даты, суд, судья)
+    /// </summary>
     private async Task ExtractHeaderInfo(IPage page, CourtCase courtCase)
     {
         try
@@ -695,14 +691,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
 
             var headerText = await headerBlock.EvaluateFunctionAsync<string>("el => el.textContent");
             
-            // Номер дела
             var caseNumberMatch = Regex.Match(headerText, @"Номер дела:\s*([^\s]+)", RegexOptions.IgnoreCase);
             if (caseNumberMatch.Success)
             {
                 courtCase.CaseNumber = caseNumberMatch.Groups[1].Value.Trim();
             }
 
-            // Дата начала
             var startDateMatch = Regex.Match(headerText, @"Дата начала:\s*(\d{1,2}\.\d{1,2}\.\d{4})", RegexOptions.IgnoreCase);
             if (startDateMatch.Success)
             {
@@ -712,7 +706,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 }
             }
 
-            // Дата рассмотрения (ReceivedDate)
             var decisionDateMatch = Regex.Match(headerText, @"Дата рассмотрения:\s*(\d{1,2}\.\d{1,2}\.\d{4})", RegexOptions.IgnoreCase);
             if (decisionDateMatch.Success)
             {
@@ -722,14 +715,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 }
             }
 
-            // Суд
             var courtMatch = Regex.Match(headerText, @"Суд:\s*([^\n]+)", RegexOptions.IgnoreCase);
             if (courtMatch.Success)
             {
                 courtCase.CourtType = courtMatch.Groups[1].Value.Trim();
             }
 
-            // Судья
             var judgeMatch = Regex.Match(headerText, @"Судья:\s*([^\n]+)", RegexOptions.IgnoreCase);
             if (judgeMatch.Success)
             {
@@ -743,7 +734,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     }
     
     /// <summary>
-    /// Извлекает результат дела
+    /// Извлекает результат рассмотрения дела
     /// </summary>
     private async Task ExtractCaseResultInfo(IPage page, CourtCase courtCase)
     {
@@ -811,6 +802,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
 
+    /// <summary>
+    /// Находит и извлекает информацию о сторонах дела
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task ExtractPartiesInfo(IPage page, CourtCase courtCase)
     {
@@ -837,6 +831,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
 
+    /// <summary>
+    /// Извлекает истцов, ответчиков, третьих лиц и представителей из таблицы
+    /// </summary>
     private async Task ExtractPartiesFromTable(IElementHandle table, CourtCase courtCase)
     {
         try
@@ -916,6 +913,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
 
+    /// <summary>
+    /// Извлекает детали движения дела из таблицы
+    /// </summary>
     private async Task ExtractMovementDetailsFromTable(IElementHandle table, CourtCase courtCase)
     {
         try

@@ -23,7 +23,10 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         _caseSubcategory = subcategory;
     }
     
-  public async Task<List<CourtCase>> ParseSearchResultsWithRetry(IPage page, int maxRetries = 3)
+    /// <summary>
+    /// Парсит результаты поиска с повторными попытками
+    /// </summary>
+    public async Task<List<CourtCase>> ParseSearchResultsWithRetry(IPage page, int maxRetries = 3)
     {
         for (var attempt = 1; attempt <= maxRetries; attempt++)
         {
@@ -69,6 +72,9 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         return [];
     }
 
+    /// <summary>
+    /// Основной метод парсинга результатов поиска
+    /// </summary>
     private async Task<List<CourtCase>> ParseSearchResultsAsync(IPage page)
     {
         var cases = new List<CourtCase>();
@@ -131,6 +137,9 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         }
     }
 
+    /// <summary>
+    /// Парсит таблицу с делом (основной формат)
+    /// </summary>
     private async Task<CourtCase?> ParseCaseTableAsync(IElementHandle table)
     {
         try
@@ -193,6 +202,9 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         }
     }
     
+    /// <summary>
+    /// Альтернативный парсинг результатов (обходной путь при проблемах с основной структурой)
+    /// </summary>
     private async Task<List<CourtCase>> ParseAlternativeResultsAsync(IPage page)
     {
         var cases = new List<CourtCase>();
@@ -201,7 +213,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         {
             logger.LogInformation("Запуск альтернативного парсинга...");
 
-            // Ищем все строки таблиц
             var allRows = await page.QuerySelectorAllAsync("tr");
             logger.LogInformation("Найдено строк в таблицах: {Count}", allRows.Length);
 
@@ -209,7 +220,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
             {
                 try
                 {
-                    // Пропускаем заголовки
                     var isActive = await row.EvaluateFunctionAsync<bool>("el => el.classList.contains('active')");
                     if (isActive) continue;
 
@@ -229,7 +239,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 }
             }
 
-            // Ищем ссылки на дела
             if (cases.Count == 0)
             {
                 var caseLinks = await page.QuerySelectorAllAsync("a[href*='/extended']");
@@ -269,19 +278,19 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         return cases;
     }
 
+    /// <summary>
+    /// Парсит строку таблицы (для альтернативного метода)
+    /// </summary>
     private async Task<CourtCase?> ParseTableRowAsync(IElementHandle[] cells)
     {
         try
         {
-            // Первая ячейка - даты
             var datesElement = cells[0];
             var datesText = await datesElement.EvaluateFunctionAsync<string>("el => el.textContent");
         
-            // Вторая ячейка - участники и возможно ссылка
             var partiesElement = cells[1];
             var partiesText = await partiesElement.EvaluateFunctionAsync<string>("el => el.textContent");
         
-            // Ищем ссылку в любой из ячеек
             IElementHandle? linkElement = null;
             foreach (var cell in cells)
             {
@@ -297,7 +306,6 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 "https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai" + href : 
                 string.Empty;
 
-            // Пытаемся найти информацию о суде (может быть в предыдущей строке)
             var courtName = "Не указан";
             var parentRow = await linkElement.EvaluateFunctionAsync<IElementHandle>("el => el.closest('tr').previousElementSibling");
             if (parentRow != null)
@@ -326,6 +334,9 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
         }
     }
 
+    /// <summary>
+    /// Парсит отдельную ссылку на дело (для альтернативного метода)
+    /// </summary>
     private async Task<CourtCase?> ParseCaseLinkAsync(IElementHandle link)
     {
         try
@@ -347,13 +358,10 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
                 var cells = await parentRow.QuerySelectorAllAsync("td");
                 if (cells.Length >= 2)
                 {
-                    // Первая ячейка - даты
                     datesText = await cells[0].EvaluateFunctionAsync<string>("el => el.textContent");
-                    // Вторая ячейка - участники
                     partiesText = await cells[1].EvaluateFunctionAsync<string>("el => el.textContent");
                 }
 
-                // Ищем суд в предыдущей строке
                 var prevRow = await parentRow.EvaluateFunctionAsync<IElementHandle>("el => el.previousElementSibling");
                 if (prevRow != null)
                 {

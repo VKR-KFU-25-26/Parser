@@ -8,14 +8,18 @@ namespace CourtParser.Infrastructure.Services;
 /// </summary>
 public class RegionSelectionService(ILogger<RegionSelectionService> logger)
 {
-   [Obsolete("Obsolete")]
-   public async Task SelectRegionsAsync(IPage page, List<string> regionsToSelect)
+    /// <summary>
+    /// Выбирает указанные регионы в модальном окне с деревом регионов
+    /// </summary>
+    /// <param name="page">Страница браузера</param>
+    /// <param name="regionsToSelect">Список названий регионов для выбора</param>
+    [Obsolete("Obsolete")]
+    public async Task SelectRegionsAsync(IPage page, List<string> regionsToSelect)
     {
         try
         {
             logger.LogInformation("Пытаемся выбрать регионы: {Regions}", string.Join(", ", regionsToSelect));
 
-            // Находим и открываем поле выбора судов/регионов
             var fieldFound = await FindAndOpenCourtField(page);
             if (!fieldFound)
             {
@@ -23,7 +27,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 return;
             }
 
-            // Ждем загрузки модального окна с деревом
             var modalLoaded = await WaitForRegionModalAsync(page);
             if (!modalLoaded)
             {
@@ -31,7 +34,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 return;
             }
 
-            // Работаем с деревом регионов
             await ProcessRegionTree(page, regionsToSelect);
 
             logger.LogInformation(" Выбор регионов завершен");
@@ -42,13 +44,16 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Находит и открывает поле выбора судов/регионов
+    /// </summary>
+    /// <returns>true если поле найдено и открыто, иначе false</returns>
     private async Task<bool> FindAndOpenCourtField(IPage page)
     {
         try
         {
             logger.LogInformation("Ищем поле выбора судов/регионов...");
 
-            // Сначала пробуем найти дерево по ID
             var treeDiv = await page.QuerySelectorAsync("#tree");
             if (treeDiv != null)
             {
@@ -58,7 +63,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 return true;
             }
 
-            // Ищем по классам дерева
             var treeByClass = await page.QuerySelectorAsync(".aciTree");
             if (treeByClass != null)
             {
@@ -78,13 +82,16 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Ожидает загрузки модального окна с деревом регионов
+    /// </summary>
+    /// <returns>true если окно загружено, иначе false</returns>
     private async Task<bool> WaitForRegionModalAsync(IPage page)
     {
         try
         {
             logger.LogInformation("Ждем загрузки модального окна с деревом регионов...");
 
-            // Ждем появления дерева aciTree
             await page.WaitForSelectorAsync(".aciTree", new WaitForSelectorOptions 
             { 
                 Timeout = 60000,
@@ -101,6 +108,9 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Обрабатывает дерево регионов: группирует и выбирает нужные регионы
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task ProcessRegionTree(IPage page, List<string> regionsToSelect)
     {
@@ -108,10 +118,8 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         {
             logger.LogInformation("Начинаем обработку дерева регионов...");
 
-            // Группируем регионы по федеральным округам
             var regionsByDistrict = GroupRegionsByFederalDistrict(regionsToSelect);
             
-            // Обрабатываем каждый федеральный округ
             foreach (var (districtName, regionsInDistrict) in regionsByDistrict)
             {
                 if (regionsInDistrict.Any())
@@ -120,7 +128,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 }
             }
 
-            // Подтверждаем выбор
             await ConfirmSelection(page);
 
             logger.LogInformation(" Обработка дерева регионов завершена");
@@ -131,6 +138,10 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Группирует регионы по федеральным округам
+    /// </summary>
+    /// <returns>Словарь: федеральный округ -> список регионов</returns>
     private Dictionary<string, List<string>> GroupRegionsByFederalDistrict(List<string> regions)
     {
         var result = new Dictionary<string, List<string>>();
@@ -151,9 +162,12 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         return result;
     }
 
+    /// <summary>
+    /// Определяет федеральный округ для указанного региона
+    /// </summary>
+    /// <returns>Название федерального округа</returns>
     private string GetFederalDistrictForRegion(string regionName)
     {
-        // Определяем федеральный округ для региона
         var districtMap = new Dictionary<string, string>
         {
             // Центральный ФО
@@ -259,7 +273,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             ["Севастополь"] = "Крымский федеральный округ"
         };
 
-        // Если регион сам является федеральным округом
         var federalDistricts = new[]
         {
             "Центральный федеральный округ",
@@ -281,6 +294,9 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         return districtMap.ContainsKey(regionName) ? districtMap[regionName] : "Приволжский федеральный округ";
     }
 
+    /// <summary>
+    /// Обрабатывает конкретный федеральный округ: раскрывает его и выбирает регионы
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task ProcessFederalDistrict(IPage page, string districtName, List<string> regions)
     {
@@ -289,7 +305,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             logger.LogInformation("Обрабатываем федеральный округ: {District} с регионами: {Regions}", 
                 districtName, string.Join(", ", regions));
 
-            // Ищем федеральный округ
             var districtFound = await FindAndExpandFederalDistrict(page, districtName);
             if (!districtFound)
             {
@@ -297,7 +312,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 return;
             }
 
-            // Выбираем регионы внутри округа
             foreach (var regionName in regions)
             {
                 await FindAndSelectRegionInDistrict(page, regionName);
@@ -309,6 +323,10 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Находит и раскрывает федеральный округ в дереве
+    /// </summary>
+    /// <returns>true если округ найден и раскрыт, иначе false</returns>
     [Obsolete("Obsolete")]
     private async Task<bool> FindAndExpandFederalDistrict(IPage page, string districtName)
     {
@@ -316,7 +334,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         {
             logger.LogInformation("Ищем федеральный округ: {District}", districtName);
 
-            // Пробуем разные варианты названия
             var districtVariants = GetDistrictNameVariants(districtName);
             
             foreach (var variant in districtVariants)
@@ -329,7 +346,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                     var districtElement = districtElements.First();
                     logger.LogInformation(" Найден федеральный округ: {Variant}", variant);
 
-                    // Раскрываем округ если нужно
                     await ExpandDistrict(page, districtElement, variant);
                     return true;
                 }
@@ -345,9 +361,11 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Возвращает возможные варианты названий федерального округа
+    /// </summary>
     private string[] GetDistrictNameVariants(string districtName)
     {
-        // Возможные варианты названий для каждого округа
         var variantsMap = new Dictionary<string, string[]>
         {
             ["Центральный федеральный округ"] = ["Центральный федеральный округ", "Центральный ФО", "ЦФО"],
@@ -364,12 +382,15 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         return variantsMap.TryGetValue(districtName, out var value) ? value : [districtName];
     }
 
+    /// <summary>
+    /// Раскрывает федеральный округ, если он свернут
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task ExpandDistrict(IPage page, IElementHandle districtElement, string districtName)
     {
         try
         {
-            // Находим кнопку раскрытия
+            // находит кнопку для раскрытия
             var expandButtonXpath = "./ancestor::div[@role='treeitem']//span[@class='aciTreeButton']";
             var expandButtons = await districtElement.XPathAsync(expandButtonXpath);
 
@@ -379,7 +400,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 
                 await WaitForElementVisibility(expandButton);
                 
-                // Проверяем состояние через JavaScript
                 var isExpanded = await page.EvaluateFunctionAsync<string>(@"
                     (button) => {
                         const lineElement = button.closest('.aciTreeLine');
@@ -406,6 +426,9 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Находит и выбирает регион внутри раскрытого федерального округа
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task FindAndSelectRegionInDistrict(IPage page, string regionName)
     {
@@ -421,7 +444,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             {
                 logger.LogWarning("Регион {RegionName} не найден по точному совпадению", regionName);
                 
-                // Пробуем частичное совпадение
                 xpath = $"//span[@class='aciTreeText' and contains(text(), '{regionName}')]";
                 regionElements = await page.XPathAsync(xpath);
             }
@@ -430,11 +452,9 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             {
                 var regionElement = regionElements.First();
                 
-                // Используем безопасный способ получения текста
                 var actualText = await regionElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
                 logger.LogInformation("Найден регион: '{ActualText}'", actualText);
                 
-                // Проверяем состояние через JavaScript
                 var isChecked = await page.EvaluateFunctionAsync<string>(@"
                     (element) => {
                         const lineElement = element.closest('.aciTreeLine');
@@ -445,17 +465,16 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
 
                 if (isChecked != "true")
                 {
-                    // Выбираем регион
                     await SelectRegionSafe(page, regionElement, regionName);
                 }
                 else
                 {
-                    logger.LogInformation(" Регион {RegionName} уже выбран", regionName);
+                    logger.LogInformation("Регион {RegionName} уже выбран", regionName);
                 }
             }
             else
             {
-                logger.LogWarning(" Регион {RegionName} не найден", regionName);
+                logger.LogWarning("Регион {RegionName} не найден", regionName);
             }
         }
         catch (Exception ex)
@@ -464,14 +483,15 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Выбирает регион 
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task SelectRegionSafe(IPage page, IElementHandle regionElement, string regionName)
     {
         try
         {
-            // Пробуем разные стратегии выбора
-            
-            // Сначала пробуем найти и кликнуть на чекбокс через XPath
+            // Пробуем кликнуть на чекбокс через XPath
             var checkboxXpath = "./ancestor::div[@role='treeitem']//span[@class='aciTreeCheck']";
             var checkboxes = await regionElement.XPathAsync(checkboxXpath);
             
@@ -485,19 +505,18 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 return;
             }
 
-            // 2. Если чекбокса нет, кликаем на текст региона через JavaScript
+            // Если чекбокса нет, кликаем на текст региона через Js
             await WaitForElementVisibility(regionElement);
             await regionElement.EvaluateFunctionAsync("el => el.click()");
             logger.LogInformation(" Выбран регион {RegionName} через текст", regionName);
             
-            // Даем время на применение выбора
             await Task.Delay(15000);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Ошибка при выборе региона {RegionName}", regionName);
             
-            // Последняя попытка - клик через координаты
+            // Клик через координаты
             try
             {
                 await ClickViaCoordinates(page, regionElement);
@@ -510,11 +529,14 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Ожидает видимости элемента для взаимодействия
+    /// </summary>
     private async Task WaitForElementVisibility(IElementHandle element)
     {
         try
         {
-            // Упрощенная проверка видимости через JavaScript без WaitForFunction
+            // Проверка видимости через Js
             var isVisible = await element.EvaluateFunctionAsync<bool>(@"
                 (element) => {
                     if (!element) return false;
@@ -527,7 +549,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
 
             if (!isVisible)
             {
-                // Если элемент не видим, ждем немного и проверяем снова
                 await Task.Delay(15000);
                 
                 isVisible = await element.EvaluateFunctionAsync<bool>(@"
@@ -549,10 +570,12 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ошибка при проверке видимости элемента");
-            // Продолжаем выполнение, так как это не критическая ошибка
         }
     }
 
+    /// <summary>
+    /// Выполняет клик по координатам элемента
+    /// </summary>
     private async Task ClickViaCoordinates(IPage page, IElementHandle element)
     {
         try
@@ -561,7 +584,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             var boundingBox = await element.BoundingBoxAsync();
             if (boundingBox != null)
             {
-                // Кликаем в центр элемента
                 await page.Mouse.ClickAsync(
                     boundingBox.X + boundingBox.Width / 2,
                     boundingBox.Y + boundingBox.Height / 2
@@ -580,6 +602,9 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         }
     }
 
+    /// <summary>
+    /// Подтверждает выбор регионов 
+    /// </summary>
     [Obsolete("Obsolete")]
     private async Task ConfirmSelection(IPage page)
     {
@@ -587,7 +612,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
         {
             logger.LogInformation("Подтверждаем выбор регионов...");
 
-            // Ищем кнопки подтверждения
             var confirmSelectors = new[]
             {
                 "button.btn-primary",
@@ -601,7 +625,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 var button = await page.QuerySelectorAsync(selector);
                 if (button != null)
                 {
-                    // Используем безопасную проверку видимости
                     var isVisible = await button.EvaluateFunctionAsync<bool>(
                         "el => el.offsetParent !== null && " +
                         "el.getBoundingClientRect().width > 0 && " +
@@ -617,7 +640,6 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 }
             }
 
-            // Ищем по тексту
             var textButtons = new[] { "Применить", "Выбрать", "OK", "Сохранить", "Готово" };
             foreach (var text in textButtons)
             {
@@ -633,12 +655,10 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
                 }
             }
 
-            // Если кнопку не нашли, пробуем кликнуть вне модального окна
             await page.ClickAsync("body");
             logger.LogInformation(" Закрыли модальное окно кликом вне его");
             await Task.Delay(10000);
 
-            // Альтернатива - нажатие клавиши Escape
             await page.Keyboard.PressAsync("Escape");
             logger.LogInformation(" Закрыли модальное окно клавишей Escape");
             await Task.Delay(10000);

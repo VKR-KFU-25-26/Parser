@@ -2,7 +2,6 @@
 WORKDIR /app
 EXPOSE 5000
 
-# Установка всех зависимостей для Puppeteer/Chromium
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -45,10 +44,8 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Создаем симлинк для совместимости
 RUN ln -s /usr/bin/chromium /usr/bin/chrome || true
 
-# Устанавливаем переменные окружения для Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 

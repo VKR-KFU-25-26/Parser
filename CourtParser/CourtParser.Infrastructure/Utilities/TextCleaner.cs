@@ -3,26 +3,30 @@ using System.Text.RegularExpressions;
 namespace CourtParser.Infrastructure.Utilities;
 
 /// <summary>
-/// Класс для очистки текста
+/// Класс для очистки текста и извлечения данных о сторонах судебного процесса
 /// </summary>
 public static class TextCleaner
 {
+    /// <summary>
+    /// Убирает лишние пробелы, табы
+    /// </summary>
     public static string CleanText(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
-        // Убираем все лишние пробелы, переносы, табы
         var cleaned = string.Join(" ", text.Split([' ', '\n', '\r', '\t'], 
             StringSplitOptions.RemoveEmptyEntries)).Trim();
 
-        // Убираем лишние пробелы вокруг дефисов и других символов
         cleaned = Regex.Replace(cleaned, @"\s+", " ");
         cleaned = Regex.Replace(cleaned, @"\s*-\s*", "-");
         
         return cleaned;
     }
 
+    /// <summary>
+    /// Извлекает данные об истце и ответчике из текстового представления сторон процесса
+    /// </summary>
     public static (string plaintiff, string defendant) ExtractParties(string partiesText)
     {
         if (string.IsNullOrWhiteSpace(partiesText))
@@ -30,7 +34,6 @@ public static class TextCleaner
 
         var cleaned = CleanText(partiesText);
         
-        // Улучшенный парсинг участников процесса
         if (cleaned.Contains("|"))
         {
             var parts = cleaned.Split('|', StringSplitOptions.RemoveEmptyEntries);
@@ -42,7 +45,6 @@ public static class TextCleaner
             }
         }
 
-        // Альтернативные разделители
         if (cleaned.Contains(";"))
         {
             var parts = cleaned.Split(';', StringSplitOptions.RemoveEmptyEntries);
@@ -54,10 +56,12 @@ public static class TextCleaner
             }
         }
 
-        // Если нет явного разделителя, пытаемся определить по контексту
         return ExtractPartiesFromText(cleaned);
     }
 
+    /// <summary>
+    /// Извлекает и очищает имя истца из текстового фрагмента
+    /// </summary>
     private static string ExtractPlaintiff(string text)
     {
         var cleaned = CleanText(text);
@@ -69,6 +73,9 @@ public static class TextCleaner
         return CleanPartyName(cleaned);
     }
 
+    /// <summary>
+    /// Извлекает и очищает имя ответчика из текстового фрагмента
+    /// </summary>
     private static string ExtractDefendant(string text)
     {
         var cleaned = CleanText(text);
@@ -80,11 +87,13 @@ public static class TextCleaner
         return CleanPartyName(cleaned);
     }
 
+    /// <summary>
+    /// Извлечь данные об истце и ответчике из текста без явных разделителей
+    /// </summary>
     private static (string plaintiff, string defendant) ExtractPartiesFromText(string text)
     {
         var cleaned = CleanText(text);
         
-        // Паттерны для определения истца и ответчика
         var patterns = new[]
         {
             @"(.+)\s+против\s+(.+)",
@@ -104,10 +113,12 @@ public static class TextCleaner
             }
         }
 
-        // Если не удалось разделить, возвращаем весь текст как истца
         return (CleanPartyName(cleaned), "Не указан");
     }
 
+    /// <summary>
+    /// Выполняет финальную очистку имени стороны процесса
+    /// </summary>
     private static string CleanPartyName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -115,7 +126,6 @@ public static class TextCleaner
 
         var cleaned = CleanText(name);
         
-        // Убираем лишние слова
         var wordsToRemove = new[]
         {
             "истец", "ответчик", "заявитель", "истцы", "ответчики", "заявители",
