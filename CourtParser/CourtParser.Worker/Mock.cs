@@ -37,7 +37,6 @@ public class Mock : BackgroundService
 
                     _logger.LogInformation("Sending test messages to Kafka topic: {Topic}", _kafkaOptions.Topic);
 
-                    // Отправляем тестовые сообщения
                     await kafkaProducer.ProduceSingleMockMessageAsync(_kafkaOptions.Topic);
                 }
 
