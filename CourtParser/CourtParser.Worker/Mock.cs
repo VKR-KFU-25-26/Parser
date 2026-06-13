@@ -35,13 +35,13 @@ public class Mock : BackgroundService
                 {
                     var kafkaProducer = scope.ServiceProvider.GetRequiredService<IKafkaProducer>();
 
-                    _logger.LogInformation("📤 Sending test messages to Kafka topic: {Topic}", _kafkaOptions.Topic);
+                    _logger.LogInformation("Sending test messages to Kafka topic: {Topic}", _kafkaOptions.Topic);
 
                     // Отправляем тестовые сообщения
                     await kafkaProducer.ProduceSingleMockMessageAsync(_kafkaOptions.Topic);
                 }
 
-                _logger.LogInformation("✅ Test messages sent successfully. Waiting for next interval...");
+                _logger.LogInformation("Test messages sent successfully. Waiting for next interval...");
 
                 await Task.Delay(_interval, stoppingToken);
             }
