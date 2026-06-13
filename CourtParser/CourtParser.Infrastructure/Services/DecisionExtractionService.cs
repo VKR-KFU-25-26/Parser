@@ -430,10 +430,8 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             html = ProcessProtectedData(html);
         
-            // Убираем комментарии
             html = Regex.Replace(html, @"<!--.*?-->", "", RegexOptions.Singleline);
         
-            // Убираем теги
             var dangerousTags = new[] { "script", "style", "iframe", "object", "embed", "link", "meta" };
             foreach (var tag in dangerousTags)
             {
@@ -442,7 +440,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 html = Regex.Replace(html, $@"<{tag}[^>]*/>", "", RegexOptions.IgnoreCase);
             }
         
-            // Декодируем HTML сущности
             html = System.Net.WebUtility.HtmlDecode(html);
         
             html = Regex.Replace(html, @"\s+", " ");

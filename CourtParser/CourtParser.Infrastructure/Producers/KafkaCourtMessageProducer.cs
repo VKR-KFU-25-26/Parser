@@ -103,7 +103,7 @@ public class KafkaCourtMessageProducer : IKafkaProducer
             {
                 _logger.LogWarning(ex, "Попытка {Attempt}/{MaxRetries} не удалась. Повтор через 2 секунды...", 
                     attempt, maxRetries);
-                await Task.Delay(2000);
+                await Task.Delay(1000);
             }
         }
         

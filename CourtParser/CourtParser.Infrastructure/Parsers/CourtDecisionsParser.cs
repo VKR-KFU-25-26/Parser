@@ -193,7 +193,7 @@ public class CourtDecisionsParser(
             "() => document.querySelector('#extendedSearch_sub_category_1') !== null",
             new WaitForFunctionOptions { Timeout = 60000 }
         );
-        await Task.Delay(15000, cancellationToken);
+        await Task.Delay(2000, cancellationToken);
 
         await page.SelectAsync("#extendedSearch_sub_category_1", "46");
         logger.LogInformation("Выбрана категория: Имущественные споры");
@@ -202,7 +202,7 @@ public class CourtDecisionsParser(
             "() => document.querySelector('#extendedSearch_sub_category_2') !== null",
             new WaitForFunctionOptions { Timeout = 60000 }
         );
-        await Task.Delay(15000, cancellationToken);
+        await Task.Delay(2000, cancellationToken);
 
         await page.SelectAsync("#extendedSearch_sub_category_2", "53");
         logger.LogInformation("Выбрана подкатегория: Иски о взыскании сумм по договору займа, кредитному договору");
